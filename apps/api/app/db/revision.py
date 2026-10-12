@@ -6,7 +6,9 @@ from pathlib import Path
 from sqlalchemy import text
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncConnection, AsyncEngine
-lazy from alembic.script import ScriptDirectory
+
+__lazy_modules__ = {"alembic.script"}
+from alembic.script import ScriptDirectory
 
 MIGRATIONS_DIR = Path(__file__).resolve().parent / "migrations"
 

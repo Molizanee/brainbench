@@ -2,7 +2,7 @@
 name = "brainbench-agents"
 version = "0.1.0"
 description = "BrainBench agents: Strands agent factories, tools, output models"
-requires-python = ">=3.15"
+requires-python = ">=3.14"
 dependencies = []
 
 [build-system]

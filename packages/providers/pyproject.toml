@@ -2,7 +2,7 @@
 name = "brainbench-providers"
 version = "0.1.0"
 description = "BrainBench provider layer: registry, vault, OAuth engines, refresher, usage, transports"
-requires-python = ">=3.15"
+requires-python = ">=3.14"
 dependencies = []
 
 [build-system]

@@ -2,7 +2,7 @@
 name = "brainbench-api"
 version = "0.1.0"
 description = "BrainBench API and worker"
-requires-python = ">=3.15"
+requires-python = ">=3.14"
 dependencies = [
     "alembic>=1.16",
     "argon2-cffi>=25.1",
@@ -11,6 +11,7 @@ dependencies = [
     "brainbench-providers",
     "docker>=7.1",
     "fastapi>=0.120",
+    "fastembed>=0.7",
     "itsdangerous>=2.2",
     "pgvector>=0.4",
     "pydantic>=2.12",

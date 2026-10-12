@@ -10,7 +10,8 @@ from dataclasses import dataclass, field
 from typing import Any
 from uuid import UUID
 
-lazy from sqlalchemy.ext.asyncio import AsyncSession
+__lazy_modules__ = {"sqlalchemy.ext.asyncio"}
+from sqlalchemy.ext.asyncio import AsyncSession
 
 
 @dataclass

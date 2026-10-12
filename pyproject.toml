@@ -16,7 +16,7 @@ default-groups = ["dev"]
 
 [tool.ruff]
 line-length = 100
-target-version = "py315"
+target-version = "py314"
 extend-exclude = ["apps/web", "node_modules", "openspec", "*.md"]
 
 [tool.ruff.lint]
@@ -26,7 +26,7 @@ select = ["E", "F", "W", "I", "B", "UP", "SIM", "RUF", "ASYNC"]
 known-first-party = ["app", "brainbench_providers", "brainbench_agents"]
 
 [tool.mypy]
-python_version = "3.15"
+python_version = "3.14"
 strict = true
 warn_unused_ignores = true
 plugins = ["pydantic.mypy"]
