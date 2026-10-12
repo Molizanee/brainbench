@@ -9,6 +9,7 @@ The handler runs the steps in a fixed order; agents only fill in each step's str
    threshold filter that splits kept and excluded topics;
 5. prerequisites over the kept topics (``prerequisites``), cycles broken by dropping the
    lowest-confidence edge, each drop recorded in the run log;
+6. deterministic planning into a new immutable ``study_plans`` version, then target promotion.
 
 Every completed unit of work (a window, a step) is saved to the job checkpoint, so a provider
 limit deferral or a retry resumes after it instead of starting over. Payload:
@@ -36,6 +37,7 @@ from app.services import curation as service
 from app.services import embeddings, providers
 from app.services import search as search_service
 from app.services.planner import Edge, break_cycles
+from app.services.plans import RunTopic, write_run_plan
 from app.services.profile import get_profile, list_target_skills
 from app.services.progress import mastered_topic_ids, session_history
 
@@ -203,11 +205,31 @@ class CurationJob:
         scores = await self._score(topics)
         threshold = float(self.state["inputs"]["threshold"])
         kept = [t for t, s in zip(topics, scores, strict=True) if s.relevance >= threshold]
-        await self._prerequisites(kept)
+        edges = await self._prerequisites(kept)
+        await self.ctx.progress("building the study plan")
+        self.ctx.raise_if_cancelled()
+        plan = await write_run_plan(
+            self.session,
+            run,
+            [
+                RunTopic(
+                    topic_id=t.topic_id,
+                    revision_id=t.revision_id,
+                    title=t.title,
+                    relevance=s.relevance,
+                    serves_targets=s.serves_targets,
+                    rationale=s.rationale,
+                    estimate_minutes=s.estimate_minutes,
+                )
+                for t, s in zip(topics, scores, strict=True)
+            ],
+            edges,
+        )
+        self.log_step("planning", f"study plan version {plan.version} written")
         run.finished_at = datetime.now(UTC)
         self._write_run(run)
         await self.save()
-        log.info("curation run %s finished", run.id)
+        log.info("curation run %s finished with plan version %d", run.id, plan.version)
 
     async def _load_run(self) -> CurationRun:
         try:

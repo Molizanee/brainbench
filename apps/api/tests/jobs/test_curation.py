@@ -17,7 +17,15 @@ from tests.support.curation import (
 )
 
 from app.core.config import settings
-from app.db.schema import CurationRun, StudySession, Topic, TopicChunk, TopicRevision
+from app.db.schema import (
+    CurationRun,
+    PlanItem,
+    StudyPlan,
+    StudySession,
+    Topic,
+    TopicChunk,
+    TopicRevision,
+)
 from app.jobs.errors import PermanentJobError, ProviderLimitReached
 from app.jobs.registry import HANDLERS
 from brainbench_agents.curation import ExtractedTopic, TopicExtraction
@@ -256,3 +264,50 @@ async def test_prerequisite_cycle_is_broken_at_the_weakest_edge_and_logged(
         "confidence": 0.3,
     }
     assert sorted(entry["cycle"]) == ["Logs", "Snapshots", "Terms"]
+
+
+async def test_run_writes_a_new_plan_version_and_keeps_old_ones(
+    session: AsyncSession, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    await seed_profile(session, budget_hours=5)
+    source, _ = await seed_source(session, "Raft", ["Terms: a.", "Logs: b.", "CSS: c."])
+    install_script(
+        monkeypatch,
+        Script(
+            relevance={"CSS": 0.2},
+            estimates={"Logs": 450},
+            edges=[("Logs", "Terms", 0.9)],
+        ),
+    )
+    run = await new_run(session)
+
+    await HANDLERS["curation"](make_ctx(session, run.id))
+    await session.commit()
+    await HANDLERS["curation"](make_ctx(session, (await new_run(session)).id))
+    await session.commit()
+
+    plans = list(await session.scalars(select(StudyPlan).order_by(StudyPlan.version)))
+    assert [p.version for p in plans] == [1, 2]
+    first = plans[0]
+    assert (first.curation_run_id, first.created_by, first.source_ids) == (
+        run.id,
+        "run",
+        [str(source.id)],
+    )
+    rows = await session.execute(
+        select(TopicRevision.title, PlanItem)
+        .join(PlanItem, PlanItem.topic_revision_id == TopicRevision.id)
+        .where(PlanItem.plan_id == first.id)
+        .order_by(PlanItem.position)
+    )
+    layout = [
+        (title, i.week_start, i.week_span, i.exceeds_weekly_budget, i.excluded) for title, i in rows
+    ]
+    assert layout == [
+        ("Terms", 1, 1, False, False),
+        ("Logs", 2, 2, True, False),
+        ("CSS", None, None, False, True),
+    ]
+    await session.refresh(run)
+    assert run.finished_at is not None
+    assert run.step_log[-1]["message"] == "study plan version 1 written"
