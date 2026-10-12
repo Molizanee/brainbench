@@ -1,16 +1,19 @@
 """API v1 routers.
 
-``public_router`` carries the unauthenticated endpoints. ``router`` is the authenticated API:
-each section adds its module under ``app/api/v1/`` (a router that declares its own full path
-prefix, e.g. ``APIRouter(prefix="/api/profile")`` or ``/events``) and registers it below with a
+``public_router`` carries the unauthenticated endpoints (health, auth). ``router`` is the
+authenticated API (401 without a valid session cookie): each section adds its module under
+``app/api/v1/`` (a router that declares its own full path prefix, e.g.
+``APIRouter(prefix="/api/profile")`` or a bare ``/events`` route) and registers it below with a
 single ``router.include_router(...)`` line. ``app/main.py`` includes both routers once.
 """
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
 
-from app.api.v1 import health
+from app.api.deps import require_session
+from app.api.v1 import auth, health
 
 public_router = APIRouter()
 public_router.include_router(health.router)
+public_router.include_router(auth.router)
 
-router = APIRouter()
+router = APIRouter(dependencies=[Depends(require_session)])

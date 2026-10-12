@@ -5,6 +5,7 @@ from fastapi import FastAPI
 
 from app import __version__
 from app.api import v1
+from app.api.errors import register_exception_handlers
 from app.core.config import settings
 from app.core.logging import setup_logging
 from app.db.revision import ensure_schema_at_head
@@ -29,6 +30,7 @@ def create_app(*, schema_guard: bool = True) -> FastAPI:
         redoc_url=None,
         lifespan=lifespan,
     )
+    register_exception_handlers(app)
     app.include_router(v1.public_router)
     app.include_router(v1.router)
     return app

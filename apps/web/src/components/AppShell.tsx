@@ -1,5 +1,5 @@
 import { Suspense, useState, type ComponentType } from 'react'
-import { NavLink, Outlet } from 'react-router'
+import { NavLink, Outlet, useNavigate } from 'react-router'
 import {
   AppBar,
   Box,
@@ -12,11 +12,15 @@ import {
   ListItemIcon,
   ListItemText,
   Toolbar,
+  Tooltip,
   Typography,
   useMediaQuery,
   useTheme,
 } from '@mui/material'
+import LogoutIcon from '@mui/icons-material/Logout'
 import MenuIcon from '@mui/icons-material/Menu'
+import { useQueryClient } from '@tanstack/react-query'
+import { logout } from '../api/auth'
 import { eventInvalidations } from '../events/invalidations'
 import { useEventSource } from '../events/useEventSource'
 
@@ -30,7 +34,15 @@ export function AppShell({ sections }: Props) {
   const theme = useTheme()
   const wide = useMediaQuery(theme.breakpoints.up('md'))
   const [open, setOpen] = useState(false)
+  const navigate = useNavigate()
+  const queryClient = useQueryClient()
   useEventSource(eventInvalidations)
+
+  const signOut = async () => {
+    await logout().catch(() => undefined)
+    queryClient.clear()
+    void navigate('/login', { replace: true })
+  }
 
   const nav = (
     <List component="nav" aria-label="Main navigation" sx={{ px: 1 }}>
@@ -66,6 +78,11 @@ export function AppShell({ sections }: Props) {
           <Typography variant="h6" component="span" sx={{ flexGrow: 1, fontWeight: 600 }}>
             BrainBench
           </Typography>
+          <Tooltip title="Sign out">
+            <IconButton aria-label="Sign out" onClick={() => void signOut()}>
+              <LogoutIcon />
+            </IconButton>
+          </Tooltip>
         </Toolbar>
       </AppBar>
       <Drawer

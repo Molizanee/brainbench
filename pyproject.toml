@@ -22,6 +22,13 @@ extend-exclude = ["apps/web", "node_modules", "openspec", "*.md"]
 [tool.ruff.lint]
 select = ["E", "F", "W", "I", "B", "UP", "SIM", "RUF", "ASYNC"]
 
+[tool.ruff.lint.flake8-bugbear]
+# `param = Depends(...)` is the FastAPI idiom used in BACKEND_GOOD_PRACTICES.md §5.
+extend-immutable-calls = [
+    "fastapi.Body", "fastapi.Cookie", "fastapi.Depends", "fastapi.File", "fastapi.Form",
+    "fastapi.Header", "fastapi.Path", "fastapi.Query", "fastapi.Security",
+]
+
 [tool.ruff.lint.isort]
 known-first-party = ["app", "brainbench_providers", "brainbench_agents"]
 

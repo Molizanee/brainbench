@@ -15,3 +15,8 @@ Object.assign(globalThis, {
   AbortController,
   AbortSignal,
 })
+
+// bun test has no global afterEach for Testing Library's auto-cleanup; unmount between tests.
+const { afterEach } = await import('bun:test')
+const { cleanup } = await import('@testing-library/react')
+afterEach(() => cleanup())

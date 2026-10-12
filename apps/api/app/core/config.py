@@ -26,7 +26,6 @@ class Settings(BaseSettings):
     # Constants with sane defaults; env can override.
     session_cookie_name: str = "brainbench_session"
     session_max_age_s: int = 60 * 60 * 24 * 30
-    password_min_length: int = 8
     anatomy_repo_url: str = "https://github.com/wheresryan22/anatomy.git"
     anatomy_pin_file: Path = Path("/app/infra/anatomy.pin")
     embedding_model: str = "BAAI/bge-small-en-v1.5"

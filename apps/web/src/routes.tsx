@@ -2,6 +2,10 @@ import { lazy, type ComponentType, type LazyExoticComponent } from 'react'
 import { Navigate, type RouteObject } from 'react-router'
 import CableIcon from '@mui/icons-material/Cable'
 import { AppShell } from './components/AppShell'
+import { RequireSession } from './components/RequireSession'
+
+const SetupPage = lazy(() => import('./pages/auth/SetupPage'))
+const LoginPage = lazy(() => import('./pages/auth/LoginPage'))
 
 /**
  * The single route table. Each section adds one entry to `sections` (its page lives under
@@ -24,9 +28,15 @@ export const sections: SectionRoute[] = [
 ]
 
 export const routes: RouteObject[] = [
+  { path: '/setup', element: <SetupPage /> },
+  { path: '/login', element: <LoginPage /> },
   {
     path: '/',
-    element: <AppShell sections={sections} />,
+    element: (
+      <RequireSession>
+        <AppShell sections={sections} />
+      </RequireSession>
+    ),
     children: [
       { index: true, element: <Navigate to="/providers" replace /> },
       ...sections.map(({ path, Page }) => ({ path, element: <Page /> })),
