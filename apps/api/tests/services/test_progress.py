@@ -15,7 +15,9 @@ from app.db.schema import (
     Topic,
     TopicRevision,
 )
+from app.models.progress import StudySessionCreate
 from app.services.progress import (
+    ProgressService,
     mastered_topic_ids,
     promote_achieved_targets,
     session_history,
@@ -25,6 +27,7 @@ from app.services.progress import (
     used_pct,
     week_bounds,
 )
+from app.services.sessions import SessionService
 
 T0 = datetime(2026, 10, 12, 8, 0, tzinfo=UTC)  # a Monday
 
@@ -246,3 +249,113 @@ async def test_target_without_serving_topics_is_never_promoted(session: AsyncSes
 
     assert await promote_achieved_targets(session) == []
     assert await promote_achieved_targets(session) == []
+
+
+async def test_target_promoted_when_every_serving_topic_is_mastered(
+    session: AsyncSession,
+) -> None:
+    """Spec: every topic serving "distributed consensus" at "proficient" is mastered."""
+    profile = await add_profile(session)
+    target = await add_target(session, profile, "Distributed consensus")
+    other = await add_target(session, profile, "Stream processing")
+    raft, paxos, kafka = [await add_topic(session) for _ in range(3)]
+    await add_plan(
+        session,
+        1,
+        [(raft, [str(target.id)]), (paxos, ["distributed consensus"]), (kafka, [str(other.id)])],
+    )
+    ticks = iter(T0 + timedelta(minutes=i) for i in range(1, 100))
+    sessions = SessionService(session, now=lambda: next(ticks))
+
+    first = await sessions.log(raft, StudySessionCreate(minutes=60, rating="confident"))
+    assert first.promoted_targets == []
+    regressed = await sessions.log(paxos, StudySessionCreate(minutes=30, rating="struggled"))
+    assert regressed.promoted_targets == []
+    assert target.achieved_at is None
+
+    last = await sessions.log(paxos, StudySessionCreate(minutes=45, rating="could-teach"))
+    assert [(p.name, p.level) for p in last.promoted_targets] == [
+        ("Distributed consensus", "proficient")
+    ]
+    await session.refresh(profile)
+    await session.refresh(target)
+    await session.refresh(other)
+    assert profile.version == 4
+    assert target.achieved_at is not None
+    assert other.achieved_at is None
+    skills = (await session.scalars(select(CurrentSkill))).all()
+    assert [(s.name, s.level) for s in skills] == [("Distributed consensus", "proficient")]
+
+    # A later regression changes the topic status but does not revoke the achievement.
+    await sessions.log(raft, StudySessionCreate(minutes=15, rating="struggled"))
+    summary = await ProgressService(session, now=lambda: T0).summary()
+    consensus = next(t for t in summary.targets if t.id == target.id)
+    assert consensus.achieved_at is not None
+    assert consensus.counts.in_progress == 1
+    assert consensus.counts.mastered == 1
+
+
+async def test_weekly_pace_against_budget(session: AsyncSession) -> None:
+    """Spec: 180 minutes in the current week with a 300-minute budget is 60%."""
+    await add_profile(session, budget_hours=5)
+    topic = await add_topic(session)
+    week_start = datetime(2026, 10, 12, tzinfo=UTC)
+    for at, minutes in [
+        (week_start - timedelta(seconds=1), 500),  # previous week
+        (week_start, 60),  # first instant of the week
+        (week_start + timedelta(days=2), 90),
+        (week_start + timedelta(days=6, hours=23), 30),
+        (week_start + timedelta(days=7), 400),  # next week
+    ]:
+        session.add(
+            StudySession(topic_id=topic, minutes=minutes, rating="understood", studied_at=at)
+        )
+    await session.commit()
+
+    now = week_start + timedelta(days=3, hours=12)
+    summary = await ProgressService(session, now=lambda: now).summary()
+    assert summary.week.week_start == week_start
+    assert summary.week.minutes_studied == 180
+    assert summary.week.budget_minutes == 300
+    assert summary.week.used_pct == 60.0
+    assert summary.minutes_studied == 1080
+
+
+async def test_weekly_pace_follows_the_viewer_week(session: AsyncSession) -> None:
+    await add_profile(session, budget_hours=2.5)
+    topic = await add_topic(session)
+    # Monday 01:00 UTC is Sunday 22:00 in UTC-3: it belongs to the previous local week.
+    session.add(
+        StudySession(
+            topic_id=topic,
+            minutes=75,
+            rating="understood",
+            studied_at=datetime(2026, 10, 12, 1, tzinfo=UTC),
+        )
+    )
+    await session.commit()
+    now = datetime(2026, 10, 12, 2, tzinfo=UTC)
+
+    utc = await ProgressService(session, now=lambda: now).summary(utc_offset_minutes=0)
+    local = await ProgressService(session, now=lambda: now).summary(utc_offset_minutes=-180)
+    assert (utc.week.minutes_studied, utc.week.used_pct) == (75, 50.0)
+    assert (local.week.minutes_studied, local.week.used_pct) == (75, 50.0)
+    later = datetime(2026, 10, 12, 4, tzinfo=UTC)  # Monday 01:00 local: a new local week
+    fresh = await ProgressService(session, now=lambda: later).summary(utc_offset_minutes=-180)
+    assert fresh.week.minutes_studied == 0
+    assert fresh.week.used_pct == 0.0
+
+
+async def test_minutes_remaining_counts_only_unmastered_estimates(session: AsyncSession) -> None:
+    profile = await add_profile(session)
+    target = await add_target(session, profile, "Raft")
+    done = await add_topic(session, "confident")
+    started = await add_topic(session, "struggled")
+    fresh = await add_topic(session)
+    ref = [str(target.id)]
+    await add_plan(session, 1, [(done, ref), (started, ref), (fresh, ref)], estimate=90)
+
+    [summary] = (await ProgressService(session, now=lambda: T0).summary()).targets
+    assert summary.counts.model_dump() == {"mastered": 1, "in_progress": 1, "not_started": 1}
+    assert summary.minutes_studied == 60
+    assert summary.minutes_remaining == 180

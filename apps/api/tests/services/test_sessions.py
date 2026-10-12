@@ -1,11 +1,12 @@
 import uuid
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.schema import StudySession, Topic
 from app.models.progress import StudySessionCreate
+from app.services.progress import topic_status
 from app.services.sessions import SessionService, TopicNotFound
 
 NOW = datetime(2026, 10, 14, 9, 30, tzinfo=UTC)
@@ -61,3 +62,35 @@ async def test_merge_cycle_is_not_followed_forever(session: AsyncSession) -> Non
 
     with pytest.raises(TopicNotFound):
         await SessionService(session).log(a.id, StudySessionCreate(minutes=5, rating="struggled"))
+
+
+class Ticking:
+    """A clock that advances one minute per call, so each session is strictly later."""
+
+    def __init__(self) -> None:
+        self.t = NOW
+
+    def __call__(self) -> datetime:
+        self.t += timedelta(minutes=1)
+        return self.t
+
+
+async def test_status_transitions_including_regression_after_mastery(
+    session: AsyncSession,
+) -> None:
+    topic = Topic()
+    session.add(topic)
+    await session.commit()
+    service = SessionService(session, now=Ticking())
+    assert await topic_status(session, topic.id) == "not-started"
+
+    steps = [
+        ("understood", 45, "in-progress", 45),
+        ("could-teach", 30, "mastered", 75),
+        ("struggled", 20, "in-progress", 95),
+        ("confident", 10, "mastered", 105),
+    ]
+    for rating, minutes, status, total in steps:
+        logged = await service.log(topic.id, StudySessionCreate(minutes=minutes, rating=rating))
+        assert (logged.topic.status, logged.topic.minutes_studied) == (status, total)
+        assert await topic_status(session, topic.id) == status
