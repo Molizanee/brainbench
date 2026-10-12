@@ -198,3 +198,108 @@ class FakeProviders:
         if provider not in self.usage:
             return httpx.Response(404, json={"error": "no usage"})
         return httpx.Response(200, json=self.usage[provider])
+
+
+# --- Recorded-exchange replay ------------------------------------------------------------------
+
+
+def _subset(expected: Any, actual: Any, path: str = "$") -> list[str]:
+    """Mismatches of ``expected`` inside ``actual`` (dict keys are a subset, lists match fully)."""
+    if isinstance(expected, dict):
+        if not isinstance(actual, dict):
+            return [f"{path}: expected an object"]
+        problems = []
+        for key, value in expected.items():
+            if key not in actual:
+                problems.append(f"{path}.{key}: missing")
+            else:
+                problems += _subset(value, actual[key], f"{path}.{key}")
+        return problems
+    if isinstance(expected, list):
+        if not isinstance(actual, list) or len(actual) != len(expected):
+            return [f"{path}: expected {len(expected)} items"]
+        return [
+            p
+            for i, (e, a) in enumerate(zip(expected, actual, strict=True))
+            for p in _subset(e, a, f"{path}[{i}]")
+        ]
+    return [] if expected == actual else [f"{path}: expected {expected!r}, got {actual!r}"]
+
+
+@dataclass
+class Replay:
+    """Serves the exchanges of a fixture file in order and checks each request against it.
+
+    A fixture is ``{"exchanges": [{"request": {"method", "url", "headers", "json"}, "response":
+    {"status", "headers", "sse": [{"event", "data"}] | "json": {...}}}]}``. Expected headers
+    match case-insensitively; ``Bearer {access}`` accepts any bearer token. ``json`` is a subset
+    of the request body. Requests to other URLs go to ``fallback`` (for example a
+    :class:`FakeProviders` serving the token endpoint during a refresh).
+    """
+
+    fixture: dict[str, Any]
+    fallback: Callable[[httpx.Request], httpx.Response] | None = None
+    served: list[httpx.Request] = field(default_factory=list)
+    problems: list[str] = field(default_factory=list)
+
+    @classmethod
+    def load(cls, path: str | Any, **kw: Any) -> Replay:
+        with open(path, encoding="utf-8") as f:
+            return cls(json.load(f), **kw)
+
+    @property
+    def urls(self) -> set[str]:
+        return {e["request"]["url"] for e in self.fixture["exchanges"]}
+
+    @property
+    def remaining(self) -> int:
+        return len(self.fixture["exchanges"]) - len(self.served)
+
+    def client(self) -> httpx.AsyncClient:
+        return httpx.AsyncClient(transport=httpx.MockTransport(self.handle))
+
+    def http_factory(self) -> Callable[[], httpx.AsyncClient]:
+        return self.client
+
+    def handle(self, request: httpx.Request) -> httpx.Response:
+        if str(request.url) not in self.urls and self.fallback is not None:
+            return self.fallback(request)
+        exchanges = self.fixture["exchanges"]
+        if len(self.served) >= len(exchanges):
+            self.problems.append(f"unexpected extra request to {request.url}")
+            return httpx.Response(599, json={"error": "replay exhausted"})
+        exchange = exchanges[len(self.served)]
+        self.served.append(request)
+        self._check(exchange["request"], request)
+        return self._response(exchange["response"])
+
+    def _check(self, expected: dict[str, Any], request: httpx.Request) -> None:
+        n = len(self.served)
+        if request.method != expected.get("method", "POST") or str(request.url) != expected["url"]:
+            self.problems.append(f"#{n}: {request.method} {request.url} != {expected['url']}")
+        for key, value in expected.get("headers", {}).items():
+            actual = request.headers.get(key)
+            ok = (
+                actual is not None and actual.startswith("Bearer ") and len(actual) > 7
+                if value == "Bearer {access}"
+                else actual == value
+            )
+            if not ok:
+                self.problems.append(f"#{n}: header {key}: expected {value!r}, got {actual!r}")
+        if "json" in expected:
+            try:
+                body = json.loads(request.content)
+            except ValueError:
+                self.problems.append(f"#{n}: body is not JSON")
+                return
+            self.problems += [f"#{n}: {p}" for p in _subset(expected["json"], body)]
+
+    @staticmethod
+    def _response(spec: dict[str, Any]) -> httpx.Response:
+        headers = spec.get("headers", {})
+        if "sse" in spec:
+            text = "".join(
+                f"event: {e['event']}\ndata: {json.dumps(e['data'])}\n\n" for e in spec["sse"]
+            )
+            return httpx.Response(spec["status"], headers=headers, content=text.encode())
+        return httpx.Response(spec["status"], headers=headers, json=spec.get("json"))

@@ -1,0 +1,121 @@
+{
+  "provenance": "Exchange transcribed from the provider wire format as parsed by omp (can1357/oh-my-pi b83200e: packages/ai/src/providers/anthropic.ts, packages/ai/src/providers/openai-codex-responses.ts, packages/ai/src/usage/*), not captured from a live account. Tokens are placeholders; {access} is the token the test's account holds when the request is sent.",
+  "description": "Structured output with text.format json_schema",
+  "exchanges": [
+    {
+      "request": {
+        "method": "POST",
+        "url": "https://chatgpt.com/backend-api/codex/responses",
+        "headers": {
+          "authorization": "Bearer {access}",
+          "chatgpt-account-id": "org-1",
+          "openai-beta": "responses=experimental",
+          "originator": "omp",
+          "version": "0.159.0",
+          "accept": "text/event-stream"
+        },
+        "json": {
+          "text": {
+            "format": {
+              "type": "json_schema",
+              "name": "TopicList",
+              "strict": false
+            }
+          }
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "text/event-stream",
+          "x-codex-primary-used-percent": "12",
+          "x-codex-primary-window-minutes": "300",
+          "x-codex-primary-reset-at": "1791900000",
+          "x-codex-secondary-used-percent": "40",
+          "x-codex-secondary-window-minutes": "10080",
+          "x-codex-secondary-reset-at": "1792400000"
+        },
+        "sse": [
+          {
+            "event": "response.created",
+            "data": {
+              "type": "response.created",
+              "response": {
+                "id": "resp_fixture",
+                "status": "in_progress"
+              }
+            }
+          },
+          {
+            "event": "response.output_item.added",
+            "data": {
+              "type": "response.output_item.added",
+              "output_index": 0,
+              "item": {
+                "id": "msg_fixture",
+                "type": "message",
+                "role": "assistant",
+                "content": []
+              }
+            }
+          },
+          {
+            "event": "response.output_text.delta",
+            "data": {
+              "type": "response.output_text.delta",
+              "item_id": "msg_fixture",
+              "output_index": 0,
+              "content_index": 0,
+              "delta": "{\"topics\": [{\"title\": \"Raft\", "
+            }
+          },
+          {
+            "event": "response.output_text.delta",
+            "data": {
+              "type": "response.output_text.delta",
+              "item_id": "msg_fixture",
+              "output_index": 0,
+              "content_index": 0,
+              "delta": "\"minutes\": 45}]}"
+            }
+          },
+          {
+            "event": "response.output_item.done",
+            "data": {
+              "type": "response.output_item.done",
+              "output_index": 0,
+              "item": {
+                "id": "msg_fixture",
+                "type": "message",
+                "content": [
+                  {
+                    "type": "output_text",
+                    "text": "{\"topics\": [{\"title\": \"Raft\", \"minutes\": 45}]}"
+                  }
+                ]
+              }
+            }
+          },
+          {
+            "event": "response.completed",
+            "data": {
+              "type": "response.completed",
+              "response": {
+                "id": "resp_fixture",
+                "status": "completed",
+                "usage": {
+                  "input_tokens": 90,
+                  "input_tokens_details": {
+                    "cached_tokens": 0
+                  },
+                  "output_tokens": 20,
+                  "total_tokens": 110
+                }
+              }
+            }
+          }
+        ]
+      }
+    }
+  ]
+}

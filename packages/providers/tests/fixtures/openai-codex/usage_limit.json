@@ -1,0 +1,33 @@
+{
+  "provenance": "Exchange transcribed from the provider wire format as parsed by omp (can1357/oh-my-pi b83200e: packages/ai/src/providers/anthropic.ts, packages/ai/src/providers/openai-codex-responses.ts, packages/ai/src/usage/*), not captured from a live account. Tokens are placeholders; {access} is the token the test's account holds when the request is sent.",
+  "description": "429 usage_limit_reached with resets_at",
+  "exchanges": [
+    {
+      "request": {
+        "method": "POST",
+        "url": "https://chatgpt.com/backend-api/codex/responses",
+        "headers": {
+          "authorization": "Bearer {access}"
+        }
+      },
+      "response": {
+        "status": 429,
+        "headers": {
+          "content-type": "application/json",
+          "x-codex-primary-used-percent": "100",
+          "x-codex-primary-window-minutes": "300",
+          "x-codex-primary-reset-at": "1791900000"
+        },
+        "json": {
+          "error": {
+            "type": "usage_limit_reached",
+            "message": "The usage limit has been reached",
+            "plan_type": "plus",
+            "resets_at": 1791900000,
+            "resets_in_seconds": 3600
+          }
+        }
+      }
+    }
+  ]
+}
