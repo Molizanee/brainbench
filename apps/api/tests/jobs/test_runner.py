@@ -316,3 +316,78 @@ async def test_provider_limit_without_reset_waits_five_to_six_minutes(
     job = await load(session_factory, job_id)
     wait = jobs.as_utc(job.run_after) - clock.now
     assert timedelta(minutes=5) <= wait <= timedelta(minutes=6)
+
+
+async def start_and_wait(
+    factory: Factory, tmp_path: Path, handler: Handler, ready: asyncio.Event
+) -> tuple[UUID, list[ActiveJob]]:
+    job_id = await enqueue(factory)
+    runner = make_runner(factory, tmp_path, {"t": handler})
+    started = await runner.tick()
+    await asyncio.wait_for(ready.wait(), 5)
+    return job_id, started
+
+
+async def request_cancel(factory: Factory, job_id: UUID) -> None:
+    async with factory() as session:
+        await jobs.cancel(session, job_id)
+        await session.commit()
+
+
+async def test_cancel_running_job_kills_sandbox_and_discards_outputs(
+    session_factory: Factory, tmp_path: Path
+) -> None:
+    ready = asyncio.Event()
+    killed = asyncio.Event()
+
+    async def handler(ctx: JobContext) -> None:
+        out = tmp_path / str(ctx.job_id) / "out"
+        out.mkdir(parents=True)
+        (out / "partial.mp4").write_bytes(b"partial")
+
+        async def kill() -> None:
+            killed.set()
+
+        ctx.register_kill_hook(kill)
+        ready.set()
+        await killed.wait()  # the "sandbox" exits once killed
+        ctx.raise_if_cancelled()
+
+    job_id, started = await start_and_wait(session_factory, tmp_path, handler, ready)
+    await request_cancel(session_factory, job_id)
+    await asyncio.wait_for(run_all(started), 5)
+    job = await load(session_factory, job_id)
+    assert (job.status, job.error_reason, job.locked_by) == ("cancelled", "cancelled", None)
+    assert killed.is_set()
+    assert not (tmp_path / str(job_id)).exists()
+
+
+async def test_cancel_stops_a_handler_that_ignores_the_flag(
+    session_factory: Factory, tmp_path: Path
+) -> None:
+    ready = asyncio.Event()
+
+    async def handler(ctx: JobContext) -> None:
+        ready.set()
+        await asyncio.sleep(60)
+
+    job_id, started = await start_and_wait(session_factory, tmp_path, handler, ready)
+    await request_cancel(session_factory, job_id)
+    await asyncio.wait_for(run_all(started), 5)
+    assert (await load(session_factory, job_id)).status == "cancelled"
+
+
+async def test_cancel_after_handler_finished_discards_its_writes(
+    session_factory: Factory, tmp_path: Path
+) -> None:
+    """The cancel lands between the handler's last step and the ready status: nothing is
+    attached and the job ends cancelled."""
+
+    async def handler(ctx: JobContext) -> None:
+        ctx.session.add(InstanceSettings(id=1, render_minutes_month=1))
+        await request_cancel(session_factory, ctx.job_id)
+
+    job = await run_one(session_factory, tmp_path, handler)
+    assert job.status == "cancelled"
+    async with session_factory() as session:
+        assert await session.get(InstanceSettings, 1) is None

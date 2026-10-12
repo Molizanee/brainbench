@@ -4,7 +4,8 @@ from uuid import uuid4
 import pytest
 
 from app.jobs import registry
-from app.jobs.registry import HANDLERS, JobContext, register
+from app.jobs.errors import JobCancelled
+from app.jobs.registry import HANDLERS, JobContext, register, register_claim_gate
 
 
 def make_ctx(**overrides: Any) -> JobContext:
@@ -70,3 +71,50 @@ async def test_noop_handler_is_registered_and_runs() -> None:
     await HANDLERS["noop"](ctx)
     assert ctx.checkpoint == {"done": True}
     assert ctx.cancelled() is False
+
+
+async def test_kill_hooks_run_once_and_can_be_unregistered() -> None:
+    calls: list[str] = []
+
+    async def kill_a() -> None:
+        calls.append("a")
+
+    async def kill_b() -> None:
+        raise RuntimeError("container already gone")
+
+    async def kill_c() -> None:
+        calls.append("c")
+
+    ctx = make_ctx()
+    ctx.register_kill_hook(kill_a)
+    ctx.register_kill_hook(kill_b)
+    unregister_c = ctx.register_kill_hook(kill_c)
+    unregister_c()
+    await ctx.run_kill_hooks()
+    await ctx.run_kill_hooks()
+    assert calls == ["a"]
+
+
+def test_raise_if_cancelled() -> None:
+    flag = False
+    ctx = make_ctx(is_cancelled=lambda: flag)
+    ctx.raise_if_cancelled()
+    flag = True
+    with pytest.raises(JobCancelled) as error:
+        ctx.raise_if_cancelled()
+    assert error.value.reason == "cancelled"
+
+
+def test_register_claim_gate(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(registry, "CLAIM_GATES", {})
+
+    @register_claim_gate("video")
+    async def gate(session: Any) -> bool:
+        return True
+
+    assert {"video": gate} == registry.CLAIM_GATES
+    with pytest.raises(ValueError, match="already registered"):
+
+        @register_claim_gate("video")
+        async def other(session: Any) -> bool:
+            return False
