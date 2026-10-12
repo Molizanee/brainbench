@@ -5,6 +5,9 @@ x-app: &app
   build:
     context: .
     dockerfile: infra/Dockerfile.app
+    # The last stage of Dockerfile.app is the CI `test` image (dev dependencies, tests,
+    # WORKDIR /app); without a target compose would build and run that one.
+    target: runtime
   environment: &app-env
     DATABASE_URL: postgresql+asyncpg://brainbench:brainbench@db:5432/brainbench
     BRAINBENCH_DATA: /data
