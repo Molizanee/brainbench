@@ -19,10 +19,12 @@ import {
 } from '@mui/material'
 import LogoutIcon from '@mui/icons-material/Logout'
 import MenuIcon from '@mui/icons-material/Menu'
+import SchoolIcon from '@mui/icons-material/School'
 import { useQueryClient } from '@tanstack/react-query'
 import { logout } from '../api/auth'
 import { eventInvalidations } from '../events/invalidations'
 import { useEventSource } from '../events/useEventSource'
+import { TutorDrawer, useTutorOpen } from '../pages/tutor/TutorDrawer'
 
 const DRAWER_WIDTH = 232
 
@@ -34,6 +36,7 @@ export function AppShell({ sections }: Props) {
   const theme = useTheme()
   const wide = useMediaQuery(theme.breakpoints.up('md'))
   const [open, setOpen] = useState(false)
+  const [tutorOpen, setTutorOpen] = useTutorOpen()
   const navigate = useNavigate()
   const queryClient = useQueryClient()
   useEventSource(eventInvalidations)
@@ -78,6 +81,15 @@ export function AppShell({ sections }: Props) {
           <Typography variant="h6" component="span" sx={{ flexGrow: 1, fontWeight: 600 }}>
             BrainBench
           </Typography>
+          <Tooltip title={tutorOpen ? 'Close tutor' : 'Open tutor'}>
+            <IconButton
+              aria-label={tutorOpen ? 'Close tutor' : 'Open tutor'}
+              aria-pressed={tutorOpen}
+              onClick={() => setTutorOpen(!tutorOpen)}
+            >
+              <SchoolIcon />
+            </IconButton>
+          </Tooltip>
           <Tooltip title="Sign out">
             <IconButton aria-label="Sign out" onClick={() => void signOut()}>
               <LogoutIcon />
@@ -106,6 +118,7 @@ export function AppShell({ sections }: Props) {
           </Suspense>
         </Container>
       </Box>
+      <TutorDrawer open={tutorOpen} onClose={() => setTutorOpen(false)} wide={wide} />
     </Box>
   )
 }

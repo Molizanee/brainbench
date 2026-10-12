@@ -24,6 +24,7 @@ from app.api.v1 import (
     search,
     sources,
     topics,
+    tutor,
 )
 
 public_router = APIRouter()
@@ -42,3 +43,4 @@ router.include_router(curation.router)
 router.include_router(plans.router)
 router.include_router(topics.router)
 router.include_router(assets.router)
+router.include_router(tutor.router)
