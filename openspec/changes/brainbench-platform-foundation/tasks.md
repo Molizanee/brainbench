@@ -38,7 +38,7 @@
 - [x] 5.1 API: `POST /sources` (URL, note, Git URL, PDF multipart with 50 MB limit), `GET /sources`, `DELETE /sources/{id}` (cancels running job, removes chunks, marks sole-source topics orphaned)
 - [x] 5.2 Worker `ingest` job: extractors for URL (trafilatura), PDF (pymupdf with page refs), Git repo (shallow clone, allowlist, 1 MB file cap, path refs), note; sentence-aware chunker with 2000-char cap that splits an oversized sentence at the last whitespace before the limit (or at the limit) and flags `sentence_continuation`; failure path leaves no partial chunks
 - [x] 5.3 Local embeddings with `fastembed` bge-small, model cache in `BRAINBENCH_DATA/models`, batch insert into `chunks`
-- [ ] 5.4 `POST /search` semantic query, k in [1, 50], cosine distance via pgvector
+- [x] 5.4 `POST /search` semantic query, k in [1, 50], cosine distance via pgvector
 - [ ] 5.5 Web: sources page with MUI forms (URL, note, Git URL, PDF upload via `FormData` streamed through the Bun proxy), status table with live updates from an `EventSource` hook that invalidates queries, delete
 - [ ] 5.6 Tests: chunker boundaries; PDF chunks carry page numbers; failed extraction leaves zero chunks; search returns ordered results with location refs
 
