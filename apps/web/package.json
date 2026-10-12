@@ -7,7 +7,7 @@
   },
   "scripts": {
     "dev": "bun --hot server.ts",
-    "build": "bun build --target=bun --minify --sourcemap=linked server.ts --outdir dist",
+    "build": "bun build --target=bun --minify --sourcemap=linked --public-path=/ server.ts --outdir dist",
     "start": "cd dist && bun server.js",
     "test": "bun test",
     "typecheck": "tsc --noEmit",
