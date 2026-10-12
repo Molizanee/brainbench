@@ -73,6 +73,7 @@ async def enqueue(
         status="queued",
         run_after=run_after or now,
         created_at=now,
+        updated_at=now,  # set here so the returned job serializes after commit without a reload
     )
     try:
         async with session.begin_nested():

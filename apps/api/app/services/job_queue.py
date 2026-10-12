@@ -306,7 +306,7 @@ async def requeue(
     job.run_after = now
     job.progress = message
     await record_event(session, job, "status", message=message)
-    log.info("job %s requeued: %s", job.id, message)
+    log.info("job %s %s", job.id, message)
     return job
 
 

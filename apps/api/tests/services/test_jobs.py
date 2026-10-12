@@ -3,6 +3,7 @@ from uuid import uuid4
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.models.jobs import JobRead
 from app.services import job_queue, jobs
 from app.services.jobs import JobFinished, JobNotFound
 
@@ -32,6 +33,12 @@ async def test_enqueue_dedupe_returns_running_job_and_releases_key_when_finished
     await job_queue.finish(session, first.id, "w1", jobs.utcnow())
     fresh = await jobs.enqueue(session, "video", {}, dedupe_key="video:1")
     assert fresh.id != first.id and fresh.status == "queued"
+
+
+async def test_enqueued_job_reads_after_commit_without_reload(session: AsyncSession) -> None:
+    job = await jobs.enqueue(session, "noop", {})
+    await session.commit()
+    assert JobRead.model_validate(job).status == "queued"
 
 
 async def test_list_and_get(session: AsyncSession) -> None:
