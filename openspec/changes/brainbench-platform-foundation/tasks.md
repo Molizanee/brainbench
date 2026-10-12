@@ -66,10 +66,10 @@
 
 ## 8. Learning progress
 
-- [ ] 8.1 API: `POST /topics/{id}/sessions` with duration > 0 and rating, topic status derivation, `GET /progress` summary per target skill and weekly pace
-- [ ] 8.2 Target skill promotion: when all topics serving a target at its level are mastered, add to current skills and mark target achieved (bumps profile version)
-- [ ] 8.3 Web: log session dialog on topic page, progress page with per-target counts, minutes studied and remaining, weekly budget usage
-- [ ] 8.4 Tests: status transitions including regression after mastery; promotion scenario; weekly pace computation
+- [x] 8.1 API: `POST /topics/{id}/sessions` with duration > 0 and rating, topic status derivation, `GET /progress` summary per target skill and weekly pace
+- [x] 8.2 Target skill promotion: when all topics serving a target at its level are mastered, add to current skills and mark target achieved (bumps profile version)
+- [x] 8.3 Web: log session dialog on topic page, progress page with per-target counts, minutes studied and remaining, weekly budget usage
+- [x] 8.4 Tests: status transitions including regression after mastery; promotion scenario; weekly pace computation
 
 ## 9. Tutor chat
 

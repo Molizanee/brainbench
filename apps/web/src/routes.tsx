@@ -4,6 +4,7 @@ import CableIcon from '@mui/icons-material/Cable'
 import WorkHistoryIcon from '@mui/icons-material/WorkHistory'
 import PersonIcon from '@mui/icons-material/Person'
 import LibraryBooksIcon from '@mui/icons-material/LibraryBooks'
+import InsightsIcon from '@mui/icons-material/Insights'
 import { AppShell } from './components/AppShell'
 import { RequireSession } from './components/RequireSession'
 
@@ -45,6 +46,12 @@ export const sections: SectionRoute[] = [
     label: 'Jobs',
     icon: WorkHistoryIcon,
     Page: lazy(() => import('./pages/jobs/JobsPage')),
+  },
+  {
+    path: 'progress',
+    label: 'Progress',
+    icon: InsightsIcon,
+    Page: lazy(() => import('./pages/progress/ProgressPage')),
   },
 ]
 
