@@ -1,0 +1,9 @@
+{
+  "plugins": ["react", "typescript", "import"],
+  "rules": {
+    "react/rules-of-hooks": "error",
+    "react/exhaustive-deps": "warn",
+    "typescript/no-explicit-any": "error"
+  },
+  "ignorePatterns": ["dist", "node_modules"]
+}
