@@ -58,6 +58,7 @@ class Settings(BaseSettings):
     render_timeout_s: float = 15 * 60.0
     render_cpus: float = 2.0
     render_memory: str = "4g"
+    render_attempts: int = 3
 
     @property
     def jobs_dir(self) -> Path:

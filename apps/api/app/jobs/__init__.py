@@ -6,3 +6,4 @@ cheap and only performs the ``@register`` side effect.
 
 from app.jobs import ingest as ingest
 from app.jobs import noop as noop
+from app.jobs import video as video
