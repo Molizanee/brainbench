@@ -1,6 +1,7 @@
 import type { QueryKey } from '@tanstack/react-query'
 import { jobKeys, type JobRead } from '../api/jobs'
 import { sourceKeys } from '../api/sources'
+import { topicKeys } from '../api/topics'
 import type { EventInvalidations } from './useEventSource'
 
 /**
@@ -8,6 +9,11 @@ import type { EventInvalidations } from './useEventSource'
  * `ingest: (job) => [sourceKeys.all]`). Sections add one entry per job type they own.
  */
 export const jobTypeInvalidations: Record<string, (job: JobRead) => QueryKey[]> = {}
+
+// Visual generation (section 7): a video or figure job refreshes its topic page.
+jobTypeInvalidations.video = jobTypeInvalidations.figure = (job) => [
+  topicKeys.detail(String(job.payload.topic_id)),
+]
 
 function isJob(payload: unknown): payload is JobRead {
   return !!payload && typeof payload === 'object' && typeof (payload as JobRead).type === 'string'

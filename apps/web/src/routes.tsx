@@ -55,6 +55,16 @@ export const sections: SectionRoute[] = [
   },
 ]
 
+/**
+ * Pages inside the shell that are not navigation sections (reached by links, e.g.
+ * `topics/:id` from a plan or progress entry). Sections add entries here for nested routes.
+ */
+export type PageRoute = { path: string; Page: LazyExoticComponent<ComponentType> }
+
+export const pageRoutes: PageRoute[] = [
+  { path: 'topics/:id', Page: lazy(() => import('./pages/topics/TopicPage')) },
+]
+
 export const routes: RouteObject[] = [
   { path: '/setup', element: <SetupPage /> },
   { path: '/login', element: <LoginPage /> },
@@ -68,6 +78,7 @@ export const routes: RouteObject[] = [
     children: [
       { index: true, element: <Navigate to="/providers" replace /> },
       ...sections.map(({ path, Page }) => ({ path, element: <Page /> })),
+      ...pageRoutes.map(({ path, Page }) => ({ path, element: <Page /> })),
     ],
   },
   { path: '*', element: <Navigate to="/" replace /> },
