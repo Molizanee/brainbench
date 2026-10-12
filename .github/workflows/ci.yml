@@ -110,3 +110,13 @@ jobs:
       - uses: extractions/setup-just@v2
       - run: uv sync --frozen
       - run: just integration
+
+  # Task 10.1: a fresh clone comes up with `docker compose up` and no environment (needs Docker
+  # and network access for images, the Anatomy skill and the embedding model).
+  fresh-clone:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v5
+      - uses: extractions/setup-just@v2
+      - run: just smoke-fresh-clone

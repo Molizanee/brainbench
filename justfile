@@ -65,6 +65,11 @@ image-smoke:
     docker run --rm brainbench-app:test pytest -q
     docker run --rm -e BRAINBENCH_EAGER_IMPORTS=1 brainbench-app:test pytest -q
 
+# Fresh-clone test (task 10.1): clone HEAD into a temp dir, `docker compose up` with no
+# environment, assert bootstrap, re-run idempotence, locked vault and skill pin swap; tears down.
+smoke-fresh-clone:
+    infra/smoke/fresh_clone.sh
+
 # Against DATABASE_URL: upgrade, no drift between ORM and migrations, full downgrade, upgrade.
 migrations-check: check-schema-rev
     cd apps/api && uv run alembic upgrade head
