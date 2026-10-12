@@ -29,8 +29,9 @@ type Props = { open: boolean; onClose: () => void; wide: boolean }
 
 /**
  * The tutor sidebar on every page: a persistent drawer beside the content on wide screens, a
- * temporary one on small screens. The panel mounts on first open and then stays mounted, so a
- * streaming reply and the selected threads survive closing it and navigating.
+ * temporary one on small screens; both start below the app bar, which keeps the toggle. The
+ * panel mounts on first open and then stays mounted, so a streaming reply and the selected
+ * threads survive closing it and navigating.
  */
 export function TutorDrawer({ open, onClose, wide }: Props) {
   // Derived during render: becomes true on the first open and stays true.
@@ -55,7 +56,8 @@ export function TutorDrawer({ open, onClose, wide }: Props) {
         },
       }}
     >
-      {wide && <Toolbar />}
+      {/* The app bar sits above both drawers; keep the panel below it. */}
+      <Toolbar />
       {mounted && <TutorPanel onClose={onClose} />}
     </Drawer>
   )

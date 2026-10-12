@@ -28,8 +28,10 @@ export function Composer({
   const empty = draft.trim() === ''
 
   const submit = () => {
-    setTouched(true)
-    if (!empty && !busy && !streaming) onSend(draft.trim())
+    if (busy || streaming) return
+    // Only an attempt to send an empty question marks the field; a sent question clears it.
+    setTouched(empty)
+    if (!empty) onSend(draft.trim())
   }
 
   const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
@@ -53,13 +55,16 @@ export function Composer({
       <TextField
         label="Ask the tutor"
         value={draft}
-        onChange={(event) => onDraftChange(event.target.value)}
+        onChange={(event) => {
+          setTouched(false)
+          onDraftChange(event.target.value)
+        }}
         onKeyDown={onKeyDown}
         multiline
         maxRows={6}
         fullWidth
         size="small"
-        error={touched && empty && !streaming}
+        error={touched && empty}
         helperText={busy ? 'Waiting for the other reply to finish' : undefined}
       />
       {streaming ? (

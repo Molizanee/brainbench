@@ -83,6 +83,10 @@ test('the reply streams with citation chips, related topics, and is saved', asyn
   // Created the thread on first send, posted the question, and shows it at once.
   expect(tutorApi.createThread).toHaveBeenCalledWith(RAFT)
   expect(reply.question).toBe('Why a majority?')
+  // A sent question clears the box without flagging it as an empty question.
+  const box = screen.getByLabelText('Ask the tutor') as HTMLTextAreaElement
+  expect(box.value).toBe('')
+  expect(box.getAttribute('aria-invalid')).toBe('false')
   expect(within(conversation()).getByText('Why a majority?')).toBeDefined()
 
   act(() => reply.emit({ type: 'delta', data: { text: 'Two majorities ' } }))
@@ -156,6 +160,18 @@ test('stop calls the stop endpoint and shows the saved partial reply as stopped'
   expect(await screen.findByText('Stopped')).toBeDefined()
   expect(screen.getByText('Raft elects')).toBeDefined()
   expect(screen.getByRole('button', { name: 'Send' })).toBeDefined()
+})
+
+test('sending an empty question flags the box until the engineer types', async () => {
+  const user = userEvent.setup()
+  panel('/')
+  await screen.findByLabelText('Tutor context: General')
+  const box = screen.getByLabelText('Ask the tutor')
+  await user.click(screen.getByRole('button', { name: 'Send' }))
+  expect(box.getAttribute('aria-invalid')).toBe('true')
+  expect(tutorApi.streamMessage).not.toHaveBeenCalled()
+  await user.type(box, 'W')
+  expect(box.getAttribute('aria-invalid')).toBe('false')
 })
 
 test('without a provider the message is not sent and the panel links to providers', async () => {
