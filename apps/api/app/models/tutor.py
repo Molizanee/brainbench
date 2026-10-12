@@ -91,16 +91,21 @@ class TutorStopRead(BaseModel):
 
 
 class LimitEvent(BaseModel):
+    """``reply`` is the partial answer saved as stopped; with no text, the question is withdrawn
+    (``user_message_id`` null) so it can be sent again."""
+
     reset_at: datetime | None
     scope: str | None
     message: str
     reply: TutorMessageRead | None = None
+    user_message_id: uuid.UUID | None = None
 
 
 class ErrorEvent(BaseModel):
     code: str
     message: str
     reply: TutorMessageRead | None = None
+    user_message_id: uuid.UUID | None = None
 
 
 class DoneEvent(BaseModel):

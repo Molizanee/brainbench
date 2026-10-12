@@ -691,10 +691,11 @@ class TutorService:
         )
         if failure is not None:
             kind, data = failure
+            kept = run.user_message_id if run.message is not None else None
             payload = (
-                LimitEvent(reply=run.message, **data)
+                LimitEvent(reply=run.message, user_message_id=kept, **data)
                 if kind == "limit"
-                else ErrorEvent(reply=run.message, **data)
+                else ErrorEvent(reply=run.message, user_message_id=kept, **data)
             )
             run.emit(kind, payload.model_dump(mode="json"))
         elif run.message is not None:

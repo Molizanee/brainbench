@@ -343,6 +343,7 @@ async def test_throttle_reports_the_reset_and_withdraws_the_question(
     payload = received[0][1]
     assert datetime.fromisoformat(payload["reset_at"]) == reset
     assert payload["scope"] == "all-accounts" and payload["reply"] is None
+    assert payload["user_message_id"] is None
     assert await stored(session_factory, thread.id) == []
 
 
@@ -359,6 +360,7 @@ async def test_throttle_mid_reply_keeps_the_partial_text(
     assert [kind for kind, _ in received] == ["delta", "limit"]
     reply = received[-1][1]["reply"]
     assert reply["content"] == "Partial " and reply["interrupted"] == "limit" and reply["stopped"]
+    assert received[-1][1]["user_message_id"] == str(run.user_message_id)
     assert len(await stored(session_factory, thread.id)) == 2
 
 
@@ -371,7 +373,12 @@ async def test_unexpected_failure_sends_an_error_event(
     model = ScriptedModel([Turn([Raise(RuntimeError("boom"))])])
     run = await service(session, session_factory, model).send(thread.id, "Explain")
     received = await collect(run)
-    failed = {"code": "tutor-failed", "message": "The tutor failed: RuntimeError", "reply": None}
+    failed = {
+        "code": "tutor-failed",
+        "message": "The tutor failed: RuntimeError",
+        "reply": None,
+        "user_message_id": None,
+    }
     assert received == [("error", failed)]
     assert await stored(session_factory, thread.id) == []
 
