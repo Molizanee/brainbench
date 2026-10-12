@@ -65,7 +65,8 @@ def _encode_fragment_part(words: list[str]) -> str:
 
 def text_fragment(text: str) -> str:
     """``#:~:text=`` directive that makes a browser scroll to and highlight ``text``."""
-    words = text.split()
+    # Markup-only tokens (table pipes, rules) are not rendered text and would break the match.
+    words = [word for word in text.split() if any(c.isalnum() for c in word)]
     if len(words) <= 2 * FRAGMENT_WORDS:
         return "#:~:text=" + _encode_fragment_part(words)
     start = _encode_fragment_part(words[:FRAGMENT_WORDS])
@@ -110,7 +111,10 @@ def extract_pdf(path: Path) -> Extracted:
     with document:
         if document.needs_pass:
             raise ExtractionError("The PDF is password-protected.")
-        flags = pymupdf.TEXTFLAGS_TEXT | pymupdf.TEXT_DEHYPHENATE
+        # Expand ligatures ("ﬁ" -> "fi") so chunks embed and match like the words they spell.
+        flags = (
+            pymupdf.TEXTFLAGS_TEXT & ~pymupdf.TEXT_PRESERVE_LIGATURES
+        ) | pymupdf.TEXT_DEHYPHENATE
         sections = []
         for page in document.pages():
             blocks = page.get_text("blocks", flags=flags, sort=True)  # type: ignore[no-untyped-call]

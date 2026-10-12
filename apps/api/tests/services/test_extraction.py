@@ -127,6 +127,10 @@ def test_url_failures(
         extract_url("https://example.com/x", timeout_s=12)
 
 
+def test_text_fragment_skips_markup_tokens() -> None:
+    assert text_fragment("| Raft | --- | leader |") == "#:~:text=Raft%20leader"
+
+
 def test_text_fragment() -> None:
     assert text_fragment("Raft elects a leader.") == "#:~:text=Raft%20elects%20a%20leader."
     long = "Leader-election uses randomized timeouts, so split votes are rare and resolve fast."
