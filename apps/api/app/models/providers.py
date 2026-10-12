@@ -126,7 +126,16 @@ class AccountUpdate(BaseModel):
 
 
 TaskClass = Literal[
-    "curation", "storyboarding", "script-generation", "script-repair", "figure-building", "tutoring"
+    "curation",
+    "storyboarding",
+    "script-generation",
+    "script-repair",
+    "figure-building",
+    "tutoring",
+    "topic_extraction",
+    "topic_merge",
+    "scoring",
+    "prerequisites",
 ]
 
 

@@ -117,6 +117,10 @@ export function routingSettings(): ProviderSettingsRead {
       'script-repair',
       'figure-building',
       'tutoring',
+      'topic_extraction',
+      'topic_merge',
+      'scoring',
+      'prerequisites',
     ],
     enabled_providers: null,
     routing: {},
@@ -127,6 +131,10 @@ export function routingSettings(): ProviderSettingsRead {
       'script-repair': effective,
       'figure-building': effective,
       tutoring: effective,
+      topic_extraction: effective,
+      topic_merge: effective,
+      scoring: effective,
+      prerequisites: effective,
     },
     options: [
       {
