@@ -175,18 +175,22 @@ class Runner:
             active.ctx = ctx
             active.handler_task = asyncio.create_task(_call(handler, ctx), name=f"handler-{job.id}")
             monitor = asyncio.create_task(self._monitor(active), name=f"monitor-{job.id}")
-            error: BaseException | None = None
             try:
-                await active.handler_task
+                # asyncio.wait does not forward our own cancellation into the handler, so a
+                # cancelled handler (cancel, lost lease, shutdown) and this task being torn down
+                # stay distinguishable. Teardown records nothing; the reaper takes over.
+                await asyncio.wait({active.handler_task})
             except asyncio.CancelledError:
-                if not active.handler_task.cancelled():
-                    raise  # this task itself was cancelled
-                error = asyncio.CancelledError("handler cancelled")
-            except Exception as exc:
-                error = exc
+                active.handler_task.cancel()
+                raise
             finally:
                 monitor.cancel()
                 await asyncio.gather(monitor, return_exceptions=True)
+            error: BaseException | None = (
+                asyncio.CancelledError("handler cancelled")
+                if active.handler_task.cancelled()
+                else active.handler_task.exception()
+            )
 
             # A handler that returns after noticing an interruption has not finished its work.
             if (error is None or isinstance(error, JobSkipped)) and not active.interrupted():

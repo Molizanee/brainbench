@@ -1,4 +1,4 @@
-"""Postgres-backed fixtures. Every test here is skipped unless ``DATABASE_URL`` names Postgres.
+"""Postgres fixtures for the job tests; skipped unless ``DATABASE_URL`` names Postgres.
 
 Each test gets its own throwaway schema: ``schema_translate_map`` sends every ORM table there
 (the ``vector`` type still comes from the extension in ``public``), so the suite never touches
@@ -23,14 +23,6 @@ from app.db.schema import Base
 DATABASE_URL = os.environ.get("DATABASE_URL", "")
 
 
-def pytest_collection_modifyitems(items: list[pytest.Item]) -> None:
-    for item in items:
-        if "tests/integration/" in str(item.path):
-            item.add_marker(pytest.mark.integration)
-            if not DATABASE_URL.startswith("postgresql"):
-                item.add_marker(pytest.mark.skip(reason="needs DATABASE_URL pointing at Postgres"))
-
-
 @pytest.fixture
 def pg_schema() -> str:
     return f"it_{uuid4().hex[:12]}"
@@ -38,6 +30,8 @@ def pg_schema() -> str:
 
 @pytest.fixture
 async def pg_engine(pg_schema: str) -> AsyncIterator[AsyncEngine]:
+    if not DATABASE_URL.startswith("postgresql"):
+        pytest.skip("needs DATABASE_URL pointing at Postgres")
     admin = create_async_engine(DATABASE_URL)
     async with admin.begin() as connection:
         await connection.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))

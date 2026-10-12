@@ -6,6 +6,8 @@ from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 from app.services import jobs
 from app.services.job_events import EventHub, load_notification
 
+pytestmark = pytest.mark.integration
+
 type Factory = async_sessionmaker[AsyncSession]
 
 

@@ -80,3 +80,8 @@ check-schema-rev:
 smoke-manim:
     docker build -f infra/Dockerfile.manim -t brainbench/manim .
     infra/smoke/manim_check.sh brainbench/manim
+
+# Section 2: job queue, LISTEN/NOTIFY and runner tests against the Postgres in DATABASE_URL.
+jobs-integration:
+    test -n "${DATABASE_URL:-}" || { echo "set DATABASE_URL to a Postgres database" >&2; exit 1; }
+    uv run pytest -m integration apps/api/tests/integration/jobs

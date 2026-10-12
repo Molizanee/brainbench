@@ -391,3 +391,67 @@ async def test_cancel_after_handler_finished_discards_its_writes(
     assert job.status == "cancelled"
     async with session_factory() as session:
         assert await session.get(InstanceSettings, 1) is None
+
+
+async def crash(started: list[ActiveJob]) -> None:
+    """Kill a worker the hard way: the job task dies first, so nothing is written back."""
+    for active in started:
+        for task in (active.task, active.handler_task):
+            assert task is not None
+            task.cancel()
+            await asyncio.gather(task, return_exceptions=True)
+
+
+async def test_worker_restart_requeues_a_running_job(
+    session_factory: Factory, tmp_path: Path
+) -> None:
+    ready = asyncio.Event()
+
+    async def hangs(ctx: JobContext) -> None:
+        ready.set()
+        await asyncio.sleep(60)
+
+    async def completes(ctx: JobContext) -> None:
+        await ctx.progress("second worker done")
+
+    job_id, started = await start_and_wait(session_factory, tmp_path, hangs, ready)
+    await crash(started)
+    assert (await load(session_factory, job_id)).status == "running"
+
+    clock = Clock()
+    second = Runner(
+        session_factory,
+        worker_id="w2",
+        handlers={"t": completes},
+        gates={},
+        clock=clock,
+        jobs_dir=tmp_path,
+    )
+    clock.now += timedelta(seconds=settings.job_stale_after_s - 5)
+    assert await second.reap() == 0
+    clock.now += timedelta(seconds=10)
+    await run_all(await second.tick())
+    job = await load(session_factory, job_id)
+    assert (job.status, job.attempt, job.progress) == ("ready", 2, "ready")
+
+
+async def test_render_limit_holds_while_a_non_render_job_starts(
+    session_factory: Factory, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(settings, "job_concurrency", 3)
+    release = asyncio.Event()
+
+    async def handler(ctx: JobContext) -> None:
+        await release.wait()
+
+    first_video = await enqueue(session_factory, "video")
+    second_video = await enqueue(session_factory, "video")
+    ingest = await enqueue(session_factory, "ingest")
+    runner = make_runner(session_factory, tmp_path, {"video": handler, "ingest": handler})
+    started = await runner.tick()
+    assert sorted(a.job.id for a in started) == sorted([first_video, ingest])
+    assert (await load(session_factory, second_video)).status == "queued"
+    release.set()
+    await run_all(started)
+    await run_all(await runner.tick())
+    assert (await load(session_factory, second_video)).status == "ready"

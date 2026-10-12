@@ -1,11 +1,14 @@
 import asyncio
 from datetime import timedelta
 
+import pytest
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.db.schema import Job
 from app.services import job_queue, jobs
+
+pytestmark = pytest.mark.integration
 
 type Factory = async_sessionmaker[AsyncSession]
 
