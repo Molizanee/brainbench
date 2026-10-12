@@ -17,6 +17,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.errors import DomainError, NotFound
 from app.db.schema import Asset, Job, PlanItem, Profile, StudyPlan, TopicRevision
+from app.models.assets import (
+    BudgetRead,
+    GenerateResponse,
+    GenerationJob,
+    PlanGenerateResponse,
+)
 from app.services import budget, jobs, providers
 from app.services import storyboard as sb
 
@@ -225,3 +231,49 @@ async def request_for_plan(
     else:
         items = await _enqueue_new(session, planned, now=now)
     return PlanRequest(plan.version, formats, items, titles)
+
+
+def _job_item(item: Requested, title: str | None = None) -> GenerationJob:
+    return GenerationJob(
+        topic_id=item.topic_id,
+        title=title,
+        format="video" if item.format == "video" else "figure",
+        job_id=item.job.id if item.job is not None else None,
+        status=item.job.status if item.job is not None else None,
+        deduplicated=item.deduplicated,
+    )
+
+
+class GenerationService:
+    """HTTP-facing wrapper: runs a request, commits, and answers with the budget left."""
+
+    def __init__(self, session: AsyncSession) -> None:
+        self.session = session
+
+    async def _budget(self) -> BudgetRead:
+        return budget.to_read(await budget.budget_status(self.session))
+
+    async def for_topic(self, topic_id: uuid.UUID, formats: Sequence[str]) -> GenerateResponse:
+        requested = await request_for_topic(self.session, topic_id, formats)
+        await self.session.commit()
+        return GenerateResponse(jobs=[_job_item(r) for r in requested], budget=await self._budget())
+
+    async def regenerate(self, asset_id: uuid.UUID, feedback: str) -> GenerateResponse:
+        requested = await regenerate(self.session, asset_id, feedback)
+        await self.session.commit()
+        return GenerateResponse(jobs=[_job_item(requested)], budget=await self._budget())
+
+    async def for_plan(self, *, dry_run: bool) -> PlanGenerateResponse:
+        result = await request_for_plan(self.session, dry_run=dry_run)
+        if dry_run:
+            await self.session.rollback()
+        else:
+            await self.session.commit()
+        return PlanGenerateResponse(
+            plan_version=result.plan_version,
+            formats=[f for f in ("video", "figure") if f in result.formats],
+            dry_run=dry_run,
+            job_count=result.new_jobs,
+            jobs=[_job_item(i, result.titles.get(i.topic_id)) for i in result.items],
+            budget=await self._budget(),
+        )

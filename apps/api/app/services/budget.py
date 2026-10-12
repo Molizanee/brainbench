@@ -19,6 +19,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.errors import Conflict
 from app.db.schema import InstanceSettings, UsageCounter
+from app.models.assets import BudgetRead
 
 log = logging.getLogger(__name__)
 
@@ -103,6 +104,19 @@ class BudgetStatus:
     @property
     def render_exhausted(self) -> bool:
         return self.render_minutes_used >= self.render_minutes_limit
+
+
+def to_read(status: BudgetStatus) -> BudgetRead:
+    return BudgetRead(
+        render_minutes_used=status.render_minutes_used,
+        render_minutes_limit=status.render_minutes_limit,
+        render_minutes_left=round(status.render_minutes_left, 2),
+        render_resets_at=status.render_resets_at,
+        jobs_today=status.jobs_today,
+        jobs_limit=status.jobs_limit,
+        jobs_left=status.jobs_left,
+        jobs_reset_at=status.jobs_reset_at,
+    )
 
 
 async def budget_status(session: AsyncSession, *, now: datetime | None = None) -> BudgetStatus:
