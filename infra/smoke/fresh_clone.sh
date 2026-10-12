@@ -6,8 +6,8 @@
 # Needs Docker with Compose v2, git, curl and python3 on the host, port 3000 and the OAuth
 # callback ports 54545 and 1455 free, and network access (images, Anatomy skill, embedding model).
 # The temp dir is under /tmp; set FRESH_CLONE_TMPDIR to another path the Docker daemon shares.
-# Only committed changes are tested. The stack, its volume, its local images, the temp clone and
-# its ./data are removed on exit, also on failure.
+# Only committed changes are tested. The stack, its volume, the project's app and web images, the
+# temp clone and its ./data are removed on exit, also on failure (the shared sandbox images stay).
 set -euo pipefail
 
 SRC="$(cd "$(dirname "$0")/../.." && pwd)"
@@ -62,7 +62,10 @@ cleanup() {
       dc ps -a
       dc logs --no-color --tail 80
     fi
-    dc down -v --remove-orphans --rmi local >/dev/null 2>&1
+    dc down -v --remove-orphans >/dev/null 2>&1
+    # Only this project's images: `--rmi local` would also delete brainbench/manim and
+    # brainbench/anatomy, the fixed sandbox image names every checkout on this daemon shares.
+    docker image rm "$ID-init" "$ID-api" "$ID-worker" "$ID-web" >/dev/null 2>&1
     if [ -d "$CLONE/data" ]; then
       docker run --rm -v "$WORK:/w" --entrypoint rm "$HELPER_IMAGE" -rf "/w/$ID/data" >/dev/null 2>&1
     fi
