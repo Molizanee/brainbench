@@ -28,7 +28,9 @@ services:
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U brainbench -d brainbench"]
+      # Over TCP: during first-run initdb the image's temporary server listens on the unix socket
+      # only, so a socket check could report healthy before `init` can connect to db:5432.
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U brainbench -d brainbench"]
       interval: 2s
       timeout: 5s
       retries: 30
