@@ -12,6 +12,7 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from functools import cache
 from pathlib import Path
+from uuid import UUID
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -29,8 +30,10 @@ from app.services.vault_key import (
     write_new_key,
 )
 from brainbench_providers.errors import ProviderError, VaultLocked
+from brainbench_providers.oauth.manager import LoginManager, LoginView
+from brainbench_providers.oauth.tokens import HttpFactory, TokenSet, default_http
 from brainbench_providers.registry import ProviderSpec, Registry, load_registry
-from brainbench_providers.vault import VaultCipher
+from brainbench_providers.vault import Identity, VaultCipher, identity_key, seal_tokens
 
 log = logging.getLogger(__name__)
 
@@ -106,11 +109,30 @@ class ProviderRuntime:
     session_factory: SessionFactory
     key_path: Path
     clock: Callable[[], datetime] = _now
+    http: HttpFactory = default_http
+    callbacks_enabled: bool = False
+    callback_host: str = "0.0.0.0"
+    callback_port_overrides: dict[int, int] = field(default_factory=dict)
     store: SqlProviderStore = field(init=False)
+    logins: LoginManager = field(init=False)
     _cipher: tuple[str, VaultCipher] | None = field(default=None, init=False, repr=False)
 
     def __post_init__(self) -> None:
         self.store = SqlProviderStore(self.session_factory)
+        self.logins = LoginManager(
+            persist=self._persist_login,
+            http=self.http,
+            callbacks_enabled=self.callbacks_enabled,
+            callback_host=self.callback_host,
+            clock=self.clock,
+            port_overrides=self.callback_port_overrides,
+        )
+
+    async def enabled_ids(self) -> list[str] | None:
+        async with self.session_factory() as session:
+            ids = await enabled_provider_ids(session)
+            await session.commit()
+        return ids
 
     async def vault_status(self) -> VaultStatus:
         async with self.session_factory() as session:
@@ -164,8 +186,46 @@ class ProviderRuntime:
             row.vault_fingerprint = fingerprint(key)
             await session.commit()
         self._cipher = None
+        self.logins.clear()
         log.warning("vault reset: %d credentials deleted, new key generated", deleted)
         return await self.vault_status()
+
+    # --- logins (task 3.3) --------------------------------------------------------------------
+
+    async def start_login(self, provider_id: str, kind: str | None) -> LoginView:
+        spec = self.registry.require_enabled(provider_id, await self.enabled_ids())
+        status = await self.vault_status()
+        if status.state == "locked":
+            raise VaultLocked(str(status.key_path), status.detail)
+        return await self.logins.start(spec, kind)
+
+    def get_login(self, login_id: str) -> LoginView:
+        return self.logins.get(login_id)
+
+    async def complete_login(self, login_id: str, text: str) -> LoginView:
+        return await self.logins.complete(login_id, text)
+
+    async def _persist_login(
+        self, spec: ProviderSpec, tokens: TokenSet, identity: Identity
+    ) -> UUID:
+        """Upsert the account (one row per provider and ``email|org`` identity key)."""
+        cipher = await self.cipher(create=True)
+        key = identity_key(identity, org_scoped=spec.identity.org_scoped)
+        stored = await self.store.upsert_credential(
+            provider=spec.id,
+            identity_key=key,
+            identity=identity.as_dict(),
+            tokens=seal_tokens(
+                cipher,
+                provider=spec.id,
+                identity_key=key,
+                access_token=tokens.access_token,
+                refresh_token=tokens.refresh_token,
+            ),
+            expires_at=tokens.expires_at,
+        )
+        log.info("credential %s stored for %s (version %d)", stored.id, spec.id, stored.version)
+        return stored.id
 
 
 _runtime: ProviderRuntime | None = None
@@ -179,5 +239,7 @@ def get_provider_runtime() -> ProviderRuntime:
             registry=get_registry(),
             session_factory=AppSessionFactory,
             key_path=settings.vault_key_path,
+            callbacks_enabled=settings.brainbench_oauth_callbacks,
+            callback_host=settings.brainbench_oauth_callback_host,
         )
     return _runtime
