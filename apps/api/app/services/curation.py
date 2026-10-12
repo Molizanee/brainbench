@@ -18,13 +18,27 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
 from app.core.errors import DomainError
-from app.db.schema import Chunk, CurationRun, Job, Source, TargetSkill, Topic, TopicRevision
+from app.db.schema import (
+    Chunk,
+    CurationRun,
+    Job,
+    Source,
+    StudySession,
+    TargetSkill,
+    Topic,
+    TopicRevision,
+)
 from app.services import jobs as job_service
 
 # Module import: app.services.providers imports app.jobs, which imports the curation handler.
 from app.services import providers
 from app.services.instance_settings import load_instance_settings
-from app.services.profile import get_profile
+from app.services.profile import (
+    get_profile,
+    list_current_skills,
+    list_target_skills,
+    normalize_name,
+)
 from app.services.topics import (
     add_revision,
     cite_chunks,
@@ -32,7 +46,7 @@ from app.services.topics import (
     normalize_title,
     resolve_topic,
 )
-from brainbench_agents.curation import CURATION_TASK_CLASSES
+from brainbench_agents.curation import CURATION_TASK_CLASSES, TopicScore
 
 __lazy_modules__ = {"strands.models.model"}
 from strands.models.model import Model
@@ -449,3 +463,127 @@ async def reconcile(
         out.append(result)
     await session.flush()
     return out
+
+
+# --- Scoring ------------------------------------------------------------------------------
+
+HELD_RELEVANCE_CAP = 0.15
+UNRELATED_PREFIX = "Unrelated to your target skills."
+
+
+async def profile_snapshot(session: AsyncSession) -> dict[str, Any]:
+    """The profile as the scoring prompt and the ``get_profile`` tool present it."""
+    profile = await get_profile(session)
+    if profile is None:
+        return {}
+    skills = await list_current_skills(session, profile.id)
+    targets = await list_target_skills(session, profile.id)
+    return {
+        "background": profile.background,
+        "weekly_budget_hours": profile.weekly_budget_hours,
+        "preferences": {
+            "formats": list(profile.preferred_formats),
+            "depth": profile.depth,
+            "language": profile.language,
+        },
+        "current_skills": [{"name": s.name, "level": s.level} for s in skills],
+        "target_skills": [
+            {
+                "name": t.name,
+                "target_level": t.target_level,
+                "priority": t.priority,
+                "reason": t.reason,
+                "achieved": t.achieved_at is not None,
+            }
+            for t in targets
+        ],
+    }
+
+
+def session_summaries(sessions: Sequence[StudySession]) -> list[dict[str, Any]]:
+    return [
+        {
+            "studied_on": s.studied_at.date().isoformat(),
+            "minutes": s.minutes,
+            "rating": s.rating,
+        }
+        for s in sessions
+    ]
+
+
+@dataclass(frozen=True)
+class ScoredTopic:
+    topic_id: uuid.UUID
+    relevance: float
+    serves_targets: list[str]
+    rationale: str
+    already_held: bool
+    estimate_minutes: int
+
+    def to_json(self) -> dict[str, Any]:
+        return {
+            "topic_id": str(self.topic_id),
+            "relevance": self.relevance,
+            "serves_targets": list(self.serves_targets),
+            "rationale": self.rationale,
+            "already_held": self.already_held,
+            "estimate_minutes": self.estimate_minutes,
+        }
+
+    @classmethod
+    def from_json(cls, data: dict[str, Any]) -> ScoredTopic:
+        return cls(
+            topic_id=uuid.UUID(data["topic_id"]),
+            relevance=float(data["relevance"]),
+            serves_targets=[str(t) for t in data["serves_targets"]],
+            rationale=str(data["rationale"]),
+            already_held=bool(data["already_held"]),
+            estimate_minutes=int(data["estimate_minutes"]),
+        )
+
+
+def apply_score(
+    topic_id: uuid.UUID,
+    score: TopicScore | None,
+    targets: Sequence[TargetSkill],
+    *,
+    default_estimate: int,
+) -> ScoredTopic:
+    """Validate one scoring answer into the stored form.
+
+    Target names map to target ids (unknown names are dropped); a topic serving no target says
+    it is unrelated; already-held material is capped below 0.2 and says so; a topic the model
+    did not score gets relevance 0 with that reason.
+    """
+    if score is None:
+        return ScoredTopic(
+            topic_id,
+            0.0,
+            [],
+            "The scoring step returned no score for this topic.",
+            False,
+            default_estimate,
+        )
+    by_name = {normalize_name(t.name): str(t.id) for t in targets}
+    by_id = {str(t.id) for t in targets}
+    serves: list[str] = []
+    for name in score.serves_targets:
+        target_id = name if name in by_id else by_name.get(normalize_name(name))
+        if target_id is not None and target_id not in serves:
+            serves.append(target_id)
+    relevance = min(max(score.relevance, 0.0), 1.0)
+    rationale = " ".join(score.rationale.split())
+    if score.already_held:
+        relevance = min(relevance, HELD_RELEVANCE_CAP)
+        if "already" not in rationale.casefold():
+            rationale = f"You already hold this skill. {rationale}".strip()
+    if not serves and "unrelated" not in rationale.casefold():
+        rationale = f"{UNRELATED_PREFIX} {rationale}".strip()
+    return ScoredTopic(
+        topic_id=topic_id,
+        relevance=round(relevance, 4),
+        serves_targets=serves,
+        rationale=rationale,
+        already_held=score.already_held,
+        estimate_minutes=score.estimate_minutes,
+    )

@@ -6,17 +6,19 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from tests.support.curation import FakeEmbeddings, seed_profile, seed_source
 
-from app.db.schema import CurationRun, Job, TopicChunk, TopicRevision
+from app.db.schema import CurationRun, Job, TargetSkill, TopicChunk, TopicRevision
 from app.services import curation as curation_service
 from app.services import providers
 from app.services.curation import (
     Candidate,
     ReadySourcesRequired,
     TargetsRequired,
+    apply_score,
     check_preconditions,
     cluster_candidates,
     effective_task_class,
     ensure_curation_providers,
+    profile_snapshot,
     reconcile,
     source_windows,
     start_run,
@@ -24,6 +26,7 @@ from app.services.curation import (
 from app.services.instance_settings import load_instance_settings
 from app.services.providers import ProviderRuntime
 from app.services.topics import create_topic, current_revision, merge_topics
+from brainbench_agents.curation import TopicScore
 from brainbench_providers.testing import FakeProviders
 
 
@@ -209,3 +212,81 @@ async def test_reconcile_matches_a_merged_topic_to_its_survivor(session: AsyncSe
     )
 
     assert topic.topic_id == survivor.id and not topic.created
+
+
+def _score(**overrides: object) -> TopicScore:
+    data: dict[str, object] = {
+        "topic": "T1",
+        "relevance": 0.7,
+        "serves_targets": ["Distributed consensus"],
+        "rationale": "Raft is the core of the target.",
+        "already_held": False,
+        "estimate_minutes": 90,
+    }
+    data.update(overrides)
+    return TopicScore.model_validate(data)
+
+
+def _target(name: str) -> TargetSkill:
+    return TargetSkill(
+        id=uuid.uuid4(),
+        name=name,
+        name_normalized=name.casefold(),
+        target_level="proficient",
+        priority="high",
+    )
+
+
+def test_apply_score_maps_targets_by_name_or_id() -> None:
+    consensus, storage = _target("Distributed consensus"), _target("Storage engines")
+    topic = uuid.uuid4()
+
+    scored = apply_score(
+        topic,
+        _score(serves_targets=["  distributed CONSENSUS", str(storage.id), "Cooking"]),
+        [consensus, storage],
+        default_estimate=60,
+    )
+
+    assert scored.serves_targets == [str(consensus.id), str(storage.id)]
+    assert (scored.relevance, scored.estimate_minutes) == (0.7, 90)
+    assert scored.rationale == "Raft is the core of the target."
+
+
+def test_apply_score_marks_unrelated_and_caps_held_material() -> None:
+    target = _target("Distributed consensus")
+
+    unrelated = apply_score(
+        uuid.uuid4(),
+        _score(serves_targets=[], relevance=0.3, rationale="CSS layout tricks."),
+        [target],
+        default_estimate=60,
+    )
+    held = apply_score(
+        uuid.uuid4(),
+        _score(relevance=0.9, already_held=True, rationale="Python basics."),
+        [target],
+        default_estimate=60,
+    )
+    missing = apply_score(uuid.uuid4(), None, [target], default_estimate=45)
+
+    assert unrelated.rationale.startswith("Unrelated to your target skills.")
+    assert unrelated.serves_targets == []
+    assert held.relevance < 0.2 and "already hold" in held.rationale
+    assert (missing.relevance, missing.estimate_minutes) == (0.0, 45)
+    assert "no score" in missing.rationale
+
+
+async def test_profile_snapshot_lists_skills_targets_and_preferences(
+    session: AsyncSession,
+) -> None:
+    assert await profile_snapshot(session) == {}
+    await seed_profile(session, skills=[("Python", "expert")])
+
+    snapshot = await profile_snapshot(session)
+
+    assert snapshot["current_skills"] == [{"name": "Python", "level": "expert"}]
+    assert snapshot["target_skills"][0]["name"] == "Distributed consensus"
+    assert snapshot["target_skills"][0]["priority"] == "high"
+    assert snapshot["preferences"]["depth"] == "intuition-first"
+    assert snapshot["weekly_budget_hours"] == 5.0

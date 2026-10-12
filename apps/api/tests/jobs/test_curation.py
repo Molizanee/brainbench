@@ -17,7 +17,7 @@ from tests.support.curation import (
 )
 
 from app.core.config import settings
-from app.db.schema import CurationRun, Topic, TopicChunk, TopicRevision
+from app.db.schema import CurationRun, StudySession, Topic, TopicChunk, TopicRevision
 from app.jobs.errors import PermanentJobError, ProviderLimitReached
 from app.jobs.registry import HANDLERS
 from brainbench_agents.curation import ExtractedTopic, TopicExtraction
@@ -99,8 +99,9 @@ async def test_extraction_drops_topics_without_valid_citations(
             ExtractedTopic(title="  ", summary="x", chunk_keys=["C1"]),
         ]
     )
-    model = install_script(monkeypatch, Script())
-    model.replies = [Structured(answer)]
+    script = Script()
+    model = install_script(monkeypatch, script)
+    model.replies = lambda call: Structured(answer) if len(model.calls) == 1 else script(call)
     run = await new_run(session)
 
     await HANDLERS["curation"](make_ctx(session, run.id))
@@ -134,7 +135,9 @@ async def test_deferral_resumes_after_the_last_completed_window(
     await HANDLERS["curation"](make_ctx(session, run_id, checkpoint=checkpoint))
 
     assert sorted((await topic_titles(session)).values()) == ["Logs", "Raft", "Terms"]
-    assert len(model.calls) == 2  # windows 2 and 3; no merge call without duplicates
+    # Windows 2 and 3 and one scoring batch; no merge call without duplicates.
+    assert script.steps == ["topic_extraction", "topic_extraction", "topic_extraction", "scoring"]
+    assert len(model.calls) == 3
 
 
 async def test_reconciled_topics_are_committed_before_later_steps(
@@ -186,3 +189,34 @@ async def test_bad_payload_and_missing_preconditions_are_permanent(
     with pytest.raises(PermanentJobError) as caught:
         await HANDLERS["curation"](make_ctx(session, run.id))
     assert caught.value.reason == "preconditions"
+
+
+async def test_scoring_sees_the_profile_and_session_history_in_batches(
+    session: AsyncSession, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(settings, "curation_scoring_batch", 2)
+    await seed_profile(session, skills=[("Python", "expert")])
+    await seed_source(session, "Raft", ["Raft: a.", "Logs: b.", "Python lists: c."])
+    script = Script(relevance={"Logs": 0.3}, held={"Python lists"})
+    model = install_script(monkeypatch, script)
+    await HANDLERS["curation"](make_ctx(session, (await new_run(session)).id))
+    titles = {title: topic_id for topic_id, title in (await topic_titles(session)).items()}
+    session.add(StudySession(topic_id=titles["Raft"], minutes=45, rating="could-teach"))
+    await session.commit()
+    model.calls.clear()
+    recorder = Checkpoints()
+
+    await HANDLERS["curation"](make_ctx(session, (await new_run(session)).id, recorder=recorder))
+
+    scoring_calls = [c for c in model.calls if "TopicScoring" in c.tool_names]
+    assert len(scoring_calls) == 2  # three topics, batches of two
+    first = scoring_calls[0].prompt
+    assert '"name": "Python"' in first and '"level": "expert"' in first
+    assert '"rating": "could-teach"' in first and '"mastered": true' in first
+    assert {"get_profile", "get_sessions", "search_chunks"} <= set(scoring_calls[0].tool_names)
+    scores = recorder.saved[-1]["scores"]
+    assert scores[str(titles["Logs"])]["relevance"] == 0.3
+    held = scores[str(titles["Python lists"])]
+    assert held["relevance"] < 0.2 and held["already_held"]
+    messages = [entry["message"] for entry in recorder.saved[-1]["log"]]
+    assert "kept 1 of 3 topics; excluded 2 below threshold 0.4" in messages

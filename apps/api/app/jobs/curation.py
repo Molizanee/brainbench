@@ -5,6 +5,8 @@ The handler runs the steps in a fixed order; agents only fill in each step's str
 1. topic extraction per source window (``topic_extraction``), with chunk citations;
 2. embedding dedupe plus one ``topic_merge`` call over the colliding groups;
 3. reconcile against existing topics (deterministic; committed so topic ids are stable);
+4. scoring in batches against the profile and session history (``scoring``), then the
+   threshold filter that splits kept and excluded topics;
 
 Every completed unit of work (a window, a step) is saved to the job checkpoint, so a provider
 limit deferral or a retry resumes after it instead of starting over. Payload:
@@ -22,7 +24,7 @@ from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
-from app.db.schema import CurationRun
+from app.db.schema import CurationRun, TargetSkill
 from app.jobs.errors import PermanentJobError
 from app.jobs.registry import JobContext, register
 
@@ -31,6 +33,8 @@ from app.jobs.registry import JobContext, register
 from app.services import curation as service
 from app.services import embeddings, providers
 from app.services import search as search_service
+from app.services.profile import get_profile, list_target_skills
+from app.services.progress import mastered_topic_ids, session_history
 
 __lazy_modules__ = {
     "brainbench_agents.curation",
@@ -42,16 +46,23 @@ from strands import Agent
 from strands.event_loop._retry import ModelRetryStrategy
 
 from brainbench_agents.curation import (
+    SCORING,
     TOPIC_EXTRACTION,
     TOPIC_MERGE,
     MergeCandidate,
     TopicExtraction,
     TopicMerge,
+    TopicScore,
+    TopicScoring,
     WindowChunk,
     extraction_prompt,
+    make_get_profile,
+    make_get_sessions,
     make_search_chunks,
     merge_prompt,
     run_structured,
+    scoring_agent,
+    scoring_prompt,
     topic_extraction_agent,
     topic_merge_agent,
 )
@@ -91,6 +102,8 @@ class CurationJob:
         self.state.setdefault("log", [])
         self.state.setdefault("models", {})
         self._agents: dict[str, Agent] = {}
+        # Prompt key (T1, T2, ...) -> topic id, for the scoring tools.
+        self._topic_keys: dict[str, uuid.UUID] = {}
 
     # --- Plumbing -------------------------------------------------------------------------
 
@@ -123,6 +136,14 @@ class CurationJob:
                 )
             case "topic_merge":
                 agent = topic_merge_agent(routed.model, **common)
+            case "scoring":
+                agent = scoring_agent(
+                    routed.model,
+                    get_profile=make_get_profile(self._profile),
+                    get_sessions=make_get_sessions(self._sessions),
+                    search_chunks=make_search_chunks(self._search),
+                    **common,
+                )
             case _:
                 raise ValueError(f"unknown curation step {step!r}")
         self._agents[step] = agent
@@ -154,6 +175,14 @@ class CurationJob:
             for h in hits
         ]
 
+    async def _profile(self) -> dict[str, Any]:
+        return await service.profile_snapshot(self.session)
+
+    async def _sessions(self, keys: list[str]) -> dict[str, list[dict[str, Any]]]:
+        ids = {key: self._topic_keys[key] for key in keys if key in self._topic_keys}
+        history = await session_history(self.session, ids.values())
+        return {key: service.session_summaries(history[topic_id]) for key, topic_id in ids.items()}
+
     # --- Pipeline -------------------------------------------------------------------------
 
     async def run(self) -> None:
@@ -161,7 +190,8 @@ class CurationJob:
         await self._inputs(run)
         candidates = await self._extract()
         merged = await self._merge(candidates)
-        await self._reconcile(run, merged)
+        topics = await self._reconcile(run, merged)
+        await self._score(topics)
         run.finished_at = datetime.now(UTC)
         self._write_run(run)
         await self.save()
@@ -313,3 +343,60 @@ class CurationJob:
         await self.session.commit()
         await self.save()
         return topics
+
+    async def _score(self, topics: list[service.ReconciledTopic]) -> list[service.ScoredTopic]:
+        """Score every topic in batches; each finished batch is checkpointed."""
+        done: dict[str, dict[str, Any]] = self.state.setdefault("scores", {})
+        keyed = {f"T{n}": t for n, t in enumerate(topics, start=1)}
+        self._topic_keys = {key: t.topic_id for key, t in keyed.items()}
+        pending = [key for key, t in keyed.items() if str(t.topic_id) not in done]
+        if pending:
+            profile = await service.profile_snapshot(self.session)
+            targets = await self._targets()
+            history = await session_history(self.session, [keyed[k].topic_id for k in pending])
+            mastered = await mastered_topic_ids(self.session)
+            size = max(1, settings.curation_scoring_batch)
+            for start in range(0, len(pending), size):
+                batch = pending[start : start + size]
+                await self.ctx.progress(
+                    f"scoring topics {start + 1}-{start + len(batch)} of {len(pending)}"
+                )
+                prompt = scoring_prompt(
+                    profile,
+                    [
+                        {
+                            "key": key,
+                            "title": keyed[key].title,
+                            "summary": keyed[key].summary,
+                            "mastered": keyed[key].topic_id in mastered,
+                            "sessions": service.session_summaries(history[keyed[key].topic_id]),
+                        }
+                        for key in batch
+                    ],
+                )
+                answer = await self.call(SCORING, TopicScoring, prompt)
+                by_key: dict[str, TopicScore] = {}
+                for score in answer.scores:
+                    by_key.setdefault(score.topic.strip(), score)
+                for key in batch:
+                    result = service.apply_score(
+                        keyed[key].topic_id,
+                        by_key.get(key),
+                        targets,
+                        default_estimate=settings.curation_default_estimate_minutes,
+                    )
+                    done[str(result.topic_id)] = result.to_json()
+                await self.save()
+        scored = [service.ScoredTopic.from_json(done[str(t.topic_id)]) for t in topics]
+        threshold = float(self.state["inputs"]["threshold"])
+        kept = sum(s.relevance >= threshold for s in scored)
+        self.log_step(
+            SCORING,
+            f"kept {kept} of {len(scored)} topics; excluded {len(scored) - kept} "
+            f"below threshold {threshold}",
+        )
+        return scored
+
+    async def _targets(self) -> list[TargetSkill]:
+        profile = await get_profile(self.session)
+        return [] if profile is None else await list_target_skills(self.session, profile.id)
