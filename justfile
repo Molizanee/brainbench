@@ -107,3 +107,11 @@ ingest-integration:
 curation-integration:
     test -n "${DATABASE_URL:-}" || { echo "set DATABASE_URL to a Postgres database" >&2; exit 1; }
     uv run pytest -m integration apps/api/tests/integration/test_curation_postgres.py -q
+
+# Section 7: sandbox, video and figure tests against the real sandbox images (needs Docker;
+# the Postgres-backed ones also need DATABASE_URL and skip without it).
+visual-integration:
+    docker compose build sandbox-manim sandbox-anatomy
+    mkdir -p "${BRAINBENCH_DATA:-$PWD/data}/skills"
+    BRAINBENCH_DATA="${BRAINBENCH_DATA:-$PWD/data}" ANATOMY_PIN_FILE="$PWD/infra/anatomy.pin" uv run python -c "from app.core.config import settings as s; from app.services.skill_install import install_pinned_skill, read_pin; print(install_pinned_skill(s.skills_dir / 'anatomy', read_pin(s.anatomy_pin_file), s.anatomy_repo_url))"
+    BRAINBENCH_DATA="${BRAINBENCH_DATA:-$PWD/data}" uv run pytest -m integration apps/api/tests/integration/visual -q

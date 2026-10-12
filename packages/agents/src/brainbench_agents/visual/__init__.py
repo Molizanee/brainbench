@@ -1,0 +1,77 @@
+"""Visual content generation agents (design D7): storyboard, figure brief, Manim script, script
+repair, and the figure-building session. Never imports from ``app``."""
+
+from brainbench_agents.visual.agents import (
+    NoStructuredOutput,
+    SearchFn,
+    StoryboardNotGrounded,
+    generate_figure_brief,
+    generate_manim_script,
+    generate_storyboard,
+    make_figure_brief_agent,
+    make_manim_script_agent,
+    make_script_repair_agent,
+    make_storyboard_agent,
+    repair_manim_script,
+)
+from brainbench_agents.visual.figure import (
+    FigureOutputs,
+    FigureSession,
+    FigureWorkspace,
+    NodeRun,
+    NodeRunner,
+    WorkspaceError,
+    collect_outputs,
+    make_figure_agent,
+    run_figure_session,
+)
+from brainbench_agents.visual.manim import check_script, template_for
+from brainbench_agents.visual.models import (
+    FORMATS,
+    ChunkRef,
+    Depth,
+    FigureBrief,
+    Format,
+    ManimScript,
+    Storyboard,
+    StoryboardScene,
+    TrueNumber,
+)
+from brainbench_agents.visual.prompts import Learner, StoryboardRequest, figure_prompt
+
+__all__ = [
+    "FORMATS",
+    "ChunkRef",
+    "Depth",
+    "FigureBrief",
+    "FigureOutputs",
+    "FigureSession",
+    "FigureWorkspace",
+    "Format",
+    "Learner",
+    "ManimScript",
+    "NoStructuredOutput",
+    "NodeRun",
+    "NodeRunner",
+    "SearchFn",
+    "Storyboard",
+    "StoryboardNotGrounded",
+    "StoryboardRequest",
+    "StoryboardScene",
+    "TrueNumber",
+    "WorkspaceError",
+    "check_script",
+    "collect_outputs",
+    "figure_prompt",
+    "generate_figure_brief",
+    "generate_manim_script",
+    "generate_storyboard",
+    "make_figure_agent",
+    "make_figure_brief_agent",
+    "make_manim_script_agent",
+    "make_script_repair_agent",
+    "make_storyboard_agent",
+    "repair_manim_script",
+    "run_figure_session",
+    "template_for",
+]

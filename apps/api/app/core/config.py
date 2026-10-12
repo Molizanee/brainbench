@@ -57,6 +57,19 @@ class Settings(BaseSettings):
     curation_merge_similarity: float = 0.85
     curation_scoring_batch: int = 20
     curation_default_estimate_minutes: int = 60
+    # Visual generation sandboxes (design D7).
+    manim_image: str = "brainbench/manim"
+    anatomy_image: str = "brainbench/anatomy"
+    sandbox_pids_limit: int = 256
+    render_timeout_s: float = 15 * 60.0
+    render_cpus: float = 2.0
+    render_memory: str = "4g"
+    render_attempts: int = 3
+    figure_max_turns: int = 60
+    figure_wall_clock_s: float = 30 * 60.0
+    figure_node_timeout_s: float = 180.0
+    figure_cpus: float = 2.0
+    figure_memory: str = "2g"
 
     @property
     def jobs_dir(self) -> Path:

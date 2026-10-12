@@ -11,6 +11,7 @@ from fastapi import APIRouter, Depends
 
 from app.api.deps import require_session
 from app.api.v1 import (
+    assets,
     auth,
     curation,
     events,
@@ -22,6 +23,7 @@ from app.api.v1 import (
     providers,
     search,
     sources,
+    topics,
 )
 
 public_router = APIRouter()
@@ -38,3 +40,5 @@ router.include_router(search.router)
 router.include_router(progress.router)
 router.include_router(curation.router)
 router.include_router(plans.router)
+router.include_router(topics.router)
+router.include_router(assets.router)
