@@ -10,10 +10,11 @@ single ``router.include_router(...)`` line. ``app/main.py`` includes both router
 from fastapi import APIRouter, Depends
 
 from app.api.deps import require_session
-from app.api.v1 import auth, health
+from app.api.v1 import auth, health, providers
 
 public_router = APIRouter()
 public_router.include_router(health.router)
 public_router.include_router(auth.router)
 
 router = APIRouter(dependencies=[Depends(require_session)])
+router.include_router(providers.router)
