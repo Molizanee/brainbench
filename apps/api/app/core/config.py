@@ -51,6 +51,15 @@ class Settings(BaseSettings):
     git_clone_timeout_s: float = 300.0
     url_fetch_timeout_s: float = 60.0
     embedding_batch_size: int = 64
+    # Tutor chat (design D10).
+    tutor_concurrency: int = 1
+    tutor_retrieval_k: int = 8
+    tutor_min_chunk_score: float = 0.6
+    tutor_related_threshold: float = 0.8
+    tutor_related_max: int = 5
+    tutor_history_messages: int = 20
+    tutor_stop_grace_s: float = 2.0
+    tutor_keepalive_s: float = 15.0
 
     @property
     def jobs_dir(self) -> Path:
