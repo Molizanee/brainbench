@@ -13,6 +13,7 @@ from sqlalchemy.pool import StaticPool
 
 from app.db.schema import Base
 from app.db.session import get_session
+from app.jobs import handlers as _handlers  # noqa: F401  (registers every handler)
 from app.main import create_app
 
 

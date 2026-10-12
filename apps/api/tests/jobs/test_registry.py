@@ -65,7 +65,7 @@ async def test_context_forwards_checkpoint_and_progress() -> None:
 
 
 async def test_noop_handler_is_registered_and_runs() -> None:
-    import app.jobs  # noqa: F401
+    import app.jobs.handlers  # noqa: F401
 
     ctx = make_ctx()
     await HANDLERS["noop"](ctx)

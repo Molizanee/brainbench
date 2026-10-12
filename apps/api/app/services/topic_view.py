@@ -31,8 +31,8 @@ from app.models.assets import (
 from app.models.jobs import JobRead
 from app.models.topics import PlanItemRead, TopicRead, TopicRevisionRead, TopicStatsRead
 from app.services import assets, budget, progress
-from app.services import storyboard as sb
 from app.services.generation import FORMATS, AssetNotFound, dedupe_key
+from app.services.topics import TopicNotFound, resolve_topic
 
 log = logging.getLogger(__name__)
 
@@ -74,9 +74,9 @@ class TopicView:
     async def read(self, topic_id: uuid.UUID) -> TopicRead:
         topic = await self.session.get(Topic, topic_id)
         if topic is None:
-            raise sb.TopicNotFound(f"Topic {topic_id} does not exist.")
+            raise TopicNotFound(f"Topic {topic_id} does not exist.")
         if topic.merged_into is not None:
-            survivor = await sb.resolve_topic(self.session, topic_id)
+            survivor = await resolve_topic(self.session, topic_id)
             raise TopicMerged(survivor.id)
         revisions = list(
             (
@@ -88,7 +88,7 @@ class TopicView:
             ).scalars()
         )
         if not revisions:
-            raise sb.TopicNotFound(f"Topic {topic_id} has no revision.")
+            raise TopicNotFound(f"Topic {topic_id} has no revision.")
         stats = (await progress.topic_stats(self.session, [topic.id]))[topic.id]
         return TopicRead(
             id=topic.id,

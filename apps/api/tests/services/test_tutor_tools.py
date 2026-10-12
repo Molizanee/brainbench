@@ -19,13 +19,7 @@ from app.db.schema import (
 )
 from app.services import search
 from app.services.search import ChunkHit
-from app.services.tutor_tools import (
-    TopicNotFound,
-    build_tutor_tools,
-    load_context,
-    plan_summary,
-    resolve_topic,
-)
+from app.services.tutor_tools import build_tutor_tools, load_context, plan_summary
 from brainbench_agents.tutor import SkillLine
 
 
@@ -45,22 +39,6 @@ async def topic(session: AsyncSession, *titles: str) -> uuid.UUID:
         )
     await session.flush()
     return row.id
-
-
-async def test_resolve_topic_follows_merges_and_rejects_cycles(session: AsyncSession) -> None:
-    survivor = await topic(session, "Raft")
-    merged = await topic(session, "Raft old")
-    looped_a = await topic(session, "A")
-    looped_b = await topic(session, "B")
-    for source, target in ((merged, survivor), (looped_a, looped_b), (looped_b, looped_a)):
-        row = await session.get(Topic, source)
-        assert row is not None
-        row.merged_into = target
-    await session.flush()
-    assert (await resolve_topic(session, merged)).id == survivor
-    for missing in (looped_a, uuid.uuid4()):
-        with pytest.raises(TopicNotFound):
-            await resolve_topic(session, missing)
 
 
 async def test_context_carries_profile_and_latest_revision(session: AsyncSession) -> None:

@@ -19,7 +19,8 @@ from app.db.schema import (
 from app.services import budget, generation, providers
 from app.services.budget import BudgetExhausted
 from app.services.providers import NoProvider
-from app.services.storyboard import TopicNotFound, TopicNotGrounded
+from app.services.storyboard import TopicNotGrounded
+from app.services.topics import TopicNotFound
 
 
 @pytest.fixture(autouse=True)

@@ -1,6 +1,7 @@
 /**
  * The only module that calls `fetch`. Every API resource module (`src/api/<resource>.ts`)
- * builds on `apiGet`, `apiPost`, `apiPatch`, and `apiDelete`.
+ * builds on `apiGet`, `apiPost`, `apiPatch`, `apiPut`, and `apiDelete`; `apiFetch` is the raw
+ * form for responses that are not JSON (streams).
  */
 
 export type FieldErrors = Record<string, string>
@@ -61,6 +62,17 @@ export function toApiError(status: number, body: unknown, fallback: string): Api
   return new ApiError(status, `http-${status}`, fallback)
 }
 
+/** `fetch` against the API: same-origin credentials, `baseUrl` applied, 401 handled. */
+export async function apiFetch(
+  path: string,
+  init: RequestInit,
+  options: Pick<RequestOptions, 'redirectOn401'> = {},
+): Promise<Response> {
+  const response = await fetch(config.baseUrl + path, { credentials: 'same-origin', ...init })
+  if (response.status === 401 && options.redirectOn401 !== false) config.onUnauthorized?.()
+  return response
+}
+
 async function request<T>(
   method: string,
   path: string,
@@ -76,15 +88,11 @@ async function request<T>(
     headers['Content-Type'] = 'application/json'
   }
 
-  const response = await fetch(config.baseUrl + path, {
-    method,
-    headers,
-    body: payload,
-    credentials: 'same-origin',
-    signal: options.signal,
-  })
-
-  if (response.status === 401 && options.redirectOn401 !== false) config.onUnauthorized?.()
+  const response = await apiFetch(
+    path,
+    { method, headers, body: payload, signal: options.signal },
+    options,
+  )
 
   const contentType = response.headers.get('content-type') ?? ''
   const isJson = contentType.includes('application/json')

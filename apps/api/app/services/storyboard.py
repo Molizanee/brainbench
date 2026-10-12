@@ -15,14 +15,13 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.errors import DomainError, NotFound
+from app.core.errors import DomainError
 from app.db.schema import (
     Asset,
     Chunk,
     CurrentSkill,
     Profile,
     Source,
-    Topic,
     TopicChunk,
     TopicRevision,
 )
@@ -31,6 +30,7 @@ from app.jobs.errors import PermanentJobError
 from app.services import providers
 from app.services import search as chunk_search
 from app.services.sandbox import SandboxRunner
+from app.services.topics import TopicNotFound, resolve_topic
 
 __lazy_modules__ = {
     "brainbench_agents.visual",
@@ -62,15 +62,10 @@ STEP_TASK_CLASSES: dict[str, str] = {
     "script_repair": "script-repair",
     "figure": "figure-building",
 }
-MAX_MERGE_DEPTH = 32
 SEED_CHUNKS = 8
 
 type ModelFactory = Callable[[AsyncSession, str], Awaitable[Model]]
 type SearchFactory = Callable[[AsyncSession, uuid.UUID], SearchFn]
-
-
-class TopicNotFound(NotFound):
-    code = "topic-not-found"
 
 
 class TopicNotGrounded(DomainError):
@@ -133,18 +128,6 @@ class TopicContext:
     summary: str
     revision: int
     chunk_ids: list[str]
-
-
-async def resolve_topic(session: AsyncSession, topic_id: uuid.UUID) -> Topic:
-    """The topic, or the survivor of its merge chain (at most 32 hops)."""
-    topic = await session.get(Topic, topic_id)
-    for _ in range(MAX_MERGE_DEPTH):
-        if topic is None or topic.merged_into is None:
-            break
-        topic = await session.get(Topic, topic.merged_into)
-    if topic is None or topic.merged_into is not None:
-        raise TopicNotFound(f"Topic {topic_id} does not exist.")
-    return topic
 
 
 async def latest_revision(session: AsyncSession, topic_id: uuid.UUID) -> TopicRevision | None:

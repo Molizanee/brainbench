@@ -1,7 +1,7 @@
 """Worker entrypoint: ``python -m app.worker``.
 
 Start-up order: schema revision guard, host data path (self-inspection through the Docker
-socket, ``BRAINBENCH_DATA_HOST`` override), sandbox probe, then the job loop. ``import app.jobs``
+socket, ``BRAINBENCH_DATA_HOST`` override), sandbox probe, then the job loop. ``app.jobs.handlers``
 registers every handler. SIGTERM and SIGINT stop claiming, kill running sandboxes, and hand the
 running jobs back to the queue before the process exits.
 """
@@ -14,7 +14,7 @@ import socket
 import sys
 from pathlib import Path
 
-import app.jobs  # noqa: F401  (registers handlers)
+import app.jobs.handlers  # noqa: F401  (registers handlers)
 from app.core.config import settings
 from app.core.logging import setup_logging
 from app.db.revision import SchemaMismatch, ensure_schema_at_head

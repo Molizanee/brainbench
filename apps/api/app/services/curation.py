@@ -31,8 +31,6 @@ from app.db.schema import (
 )
 from app.models.curation import CurationRunCreate, CurationRunRead, ModelUsed
 from app.services import jobs as job_service
-
-# Module import: app.services.providers imports app.jobs, which imports the curation handler.
 from app.services import providers
 from app.services.instance_settings import load_instance_settings
 from app.services.profile import (

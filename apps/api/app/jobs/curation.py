@@ -30,9 +30,6 @@ from app.core.config import settings
 from app.db.schema import CurationRun, TargetSkill
 from app.jobs.errors import PermanentJobError
 from app.jobs.registry import JobContext, register
-
-# Module imports: app.services.providers imports app.jobs, which imports this handler, so
-# names are looked up at call time (either module may be the one importing first).
 from app.services import curation as service
 from app.services import embeddings, providers
 from app.services import plans as plan_service

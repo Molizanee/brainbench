@@ -1,11 +1,4 @@
-"""Job handler modules. Each section adds one eager import line here so its handler registers.
+"""Job layer: ``registry`` (handler protocol), ``errors``, ``runner``, and one module per job type.
 
-Handler modules keep their heavy dependencies behind ``lazy import``; importing them here is
-cheap and only performs the ``@register`` side effect.
+Handlers register when ``app.jobs.handlers`` is imported; see that module.
 """
-
-from app.jobs import curation as curation
-from app.jobs import figure as figure
-from app.jobs import ingest as ingest
-from app.jobs import noop as noop
-from app.jobs import video as video

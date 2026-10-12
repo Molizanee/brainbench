@@ -14,33 +14,12 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.core.config import settings
-from app.core.errors import NotFound
-from app.db.schema import Asset, PlanItem, Source, StudyPlan, Topic, TopicRevision
+from app.db.schema import Asset, PlanItem, Source, StudyPlan, TopicRevision
 from app.services import search
 from app.services.profile import get_profile, list_current_skills, list_target_skills, read_profile
 from app.services.progress import current_plan, topic_stats
+from app.services.topics import TopicNotFound, resolve_topic
 from brainbench_agents.tutor import ChunkRef, SkillLine, TutorContext, TutorProfile, TutorTools
-
-MAX_MERGE_HOPS = 32
-
-
-class TopicNotFound(NotFound):
-    code = "topic-not-found"
-
-
-async def resolve_topic(session: AsyncSession, topic_id: uuid.UUID) -> Topic:
-    """The topic, following ``merged_into`` to the survivor of a merge."""
-    seen: set[uuid.UUID] = set()
-    current = topic_id
-    for _ in range(MAX_MERGE_HOPS):
-        topic = await session.get(Topic, current)
-        if topic is None or current in seen:
-            break
-        if topic.merged_into is None:
-            return topic
-        seen.add(current)
-        current = topic.merged_into
-    raise TopicNotFound(f"Topic {topic_id} does not exist.")
 
 
 async def latest_revisions(

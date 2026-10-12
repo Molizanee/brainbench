@@ -5,19 +5,12 @@ import uuid
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.errors import NotFound
-from app.db.schema import StudySession, Topic
+from app.db.schema import StudySession
 from app.models.progress import SessionLogged, StudySessionCreate, StudySessionRead, TopicProgress
 from app.services.progress import Clock, promote_achieved_targets, topic_stats, utc_now
+from app.services.topics import resolve_topic
 
 log = logging.getLogger(__name__)
-
-# Bounds the merged_into chain walk; a merge chain longer than this is a data error.
-MAX_MERGE_DEPTH = 32
-
-
-class TopicNotFound(NotFound):
-    code = "topic-not-found"
 
 
 class SessionService:
@@ -25,19 +18,8 @@ class SessionService:
         self.session = session
         self.now = now
 
-    async def _resolve_topic(self, topic_id: uuid.UUID) -> Topic:
-        """The topic, or the survivor it was merged into (links to a merged topic resolve)."""
-        topic = await self.session.get(Topic, topic_id)
-        for _ in range(MAX_MERGE_DEPTH):
-            if topic is None or topic.merged_into is None:
-                break
-            topic = await self.session.get(Topic, topic.merged_into)
-        if topic is None or topic.merged_into is not None:
-            raise TopicNotFound(f"Topic {topic_id} does not exist.")
-        return topic
-
     async def log(self, topic_id: uuid.UUID, data: StudySessionCreate) -> SessionLogged:
-        topic = await self._resolve_topic(topic_id)
+        topic = await resolve_topic(self.session, topic_id)
         row = StudySession(
             topic_id=topic.id,
             minutes=data.minutes,

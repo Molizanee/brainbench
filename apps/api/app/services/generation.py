@@ -25,6 +25,7 @@ from app.models.assets import (
 )
 from app.services import budget, jobs, providers
 from app.services import storyboard as sb
+from app.services.topics import TopicNotFound, resolve_topic
 
 log = logging.getLogger(__name__)
 
@@ -129,10 +130,10 @@ async def request_for_topic(
     now: datetime | None = None,
 ) -> list[Requested]:
     """Queue one job per requested format (flushed; the caller commits)."""
-    topic = await sb.resolve_topic(session, topic_id)
+    topic = await resolve_topic(session, topic_id)
     revision = await sb.latest_revision(session, topic.id)
     if revision is None:
-        raise sb.TopicNotFound(f"Topic {topic_id} has no revision.")
+        raise TopicNotFound(f"Topic {topic_id} has no revision.")
     planned = [
         Planned(topic.id, revision.title, f, await active_job(session, f, topic.id))
         for f in canonical_formats(formats)
@@ -217,7 +218,7 @@ async def request_for_plan(
     planned = []
     titles: dict[uuid.UUID, str] = {}
     for topic_id, title in rows:
-        topic = await sb.resolve_topic(session, topic_id)
+        topic = await resolve_topic(session, topic_id)
         if topic.id in titles:  # two plan items merged into one topic
             continue
         titles[topic.id] = title

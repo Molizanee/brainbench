@@ -20,9 +20,6 @@ from app.core.config import settings
 from app.jobs.errors import PermanentJobError
 from app.jobs.registry import JobContext
 from app.services import assets, budget
-
-# Module import: app.jobs imports this module's handler while app.services.storyboard may still
-# be initializing (storyboard -> app.jobs.errors -> app.jobs -> app.jobs.video -> here).
 from app.services import storyboard as sb
 from app.services.sandbox import Mount, SandboxLimits, SandboxResult, prepare_dir
 

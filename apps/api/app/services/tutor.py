@@ -59,12 +59,12 @@ from app.services.providers import (
     find_throttle,
     model_for,
 )
+from app.services.topics import resolve_topic
 from app.services.tutor_tools import (
     build_tutor_tools,
     current_asset_formats,
     latest_revisions,
     load_context,
-    resolve_topic,
 )
 from brainbench_agents.tutor import (
     ChunkRef,

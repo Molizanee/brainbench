@@ -83,7 +83,7 @@ async def source_events(session: AsyncSession, job_id: UUID) -> list[tuple[str, 
 
 
 async def test_handler_is_registered() -> None:
-    import app.jobs  # noqa: F401
+    import app.jobs.handlers  # noqa: F401
 
     assert "ingest" in HANDLERS
 

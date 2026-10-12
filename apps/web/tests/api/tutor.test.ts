@@ -2,7 +2,6 @@ import { afterAll, beforeAll, beforeEach, expect, test } from 'bun:test'
 import { tutorApi } from '../support/tutorMock'
 import { ApiError, configureApiClient } from '../../src/api/client'
 import {
-  configureTutorStream,
   contextParam,
   createThread,
   listMessages,
@@ -61,12 +60,10 @@ beforeAll(() => {
   })
   web = startServer({ port: 0, apiUrl: upstream.url.origin })
   configureApiClient({ baseUrl: web.url.origin })
-  configureTutorStream({ baseUrl: web.url.origin })
 })
 
 afterAll(() => {
   configureApiClient({ baseUrl: '' })
-  configureTutorStream({ baseUrl: '' })
   web.stop(true)
   upstream.stop(true)
 })

@@ -283,8 +283,12 @@ class ProfileService:
                     reason=target.reason,
                 )
             )
-        self.session.add_all([profile, *skills, *targets])
+        # The children reference ``profile.id`` with no ORM relationship to order the inserts,
+        # so the profile row is flushed first (Postgres enforces the key; SQLite does not).
+        self.session.add(profile)
         try:
+            await self.session.flush()
+            self.session.add_all([*skills, *targets])
             await self.session.flush()
         except IntegrityError as exc:
             # Lost a race with a concurrent create: the singleton constraint fired.

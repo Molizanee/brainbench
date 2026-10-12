@@ -7,7 +7,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.db.schema import StudySession, Topic
 from app.models.progress import StudySessionCreate
 from app.services.progress import topic_status
-from app.services.sessions import SessionService, TopicNotFound
+from app.services.sessions import SessionService
+from app.services.topics import TopicNotFound
 
 NOW = datetime(2026, 10, 14, 9, 30, tzinfo=UTC)
 

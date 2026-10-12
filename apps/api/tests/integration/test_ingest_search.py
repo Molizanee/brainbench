@@ -223,7 +223,7 @@ async def run_job(factory: async_sessionmaker[AsyncSession], job_id: str, **kw: 
 async def test_pdf_ingested_and_searched_through_the_api(
     api: TestClient, pg_factory: async_sessionmaker[AsyncSession]
 ) -> None:
-    import app.jobs  # noqa: F401
+    import app.jobs.handlers  # noqa: F401
 
     created = api.post(
         "/api/sources", files={"file": ("systems.pdf", make_pdf(PAGES), "application/pdf")}
@@ -257,7 +257,7 @@ async def test_pdf_ingested_and_searched_through_the_api(
 async def test_delete_during_ingestion_cancels_and_removes(
     api: TestClient, pg_factory: async_sessionmaker[AsyncSession]
 ) -> None:
-    import app.jobs  # noqa: F401
+    import app.jobs.handlers  # noqa: F401
 
     created = api.post("/api/sources", json={"type": "note", "text": PAGES[0]}).json()
     deleted = asyncio.Event()

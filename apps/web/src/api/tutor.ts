@@ -1,4 +1,4 @@
-import { apiGet, apiPost, ApiError, toApiError } from './client'
+import { apiFetch, apiGet, apiPost, ApiError, toApiError } from './client'
 
 /** Mirrors `TutorContextType` in apps/api/app/models/tutor.py. */
 export type TutorContextType = 'topic' | 'plan' | 'general'
@@ -148,13 +148,6 @@ export async function* readSse(body: ReadableStream<Uint8Array>): AsyncGenerator
   }
 }
 
-const streamConfig = { baseUrl: '' }
-
-/** Tests point the stream at a test server; the app uses same-origin paths. */
-export function configureTutorStream(options: { baseUrl?: string }): void {
-  Object.assign(streamConfig, options)
-}
-
 type StreamOptions = { signal?: AbortSignal; onEvent: (event: TutorStreamEvent) => void }
 
 /**
@@ -167,18 +160,15 @@ export async function streamMessage(
   content: string,
   { signal, onEvent }: StreamOptions,
 ): Promise<void> {
-  const response = await fetch(`${streamConfig.baseUrl}/api/tutor/threads/${threadId}/messages`, {
+  const response = await apiFetch(`/api/tutor/threads/${threadId}/messages`, {
     method: 'POST',
     headers: { Accept: 'text/event-stream', 'Content-Type': 'application/json' },
     body: JSON.stringify({ content }),
-    credentials: 'same-origin',
     signal,
   })
   if (!response.ok) {
     const isJson = (response.headers.get('content-type') ?? '').includes('application/json')
     const body: unknown = isJson ? await response.json().catch(() => null) : null
-    // The shared client owns the 401 redirect; a cheap authenticated call routes through it.
-    if (response.status === 401) void listThreads('general').catch(() => undefined)
     throw toApiError(response.status, body, response.statusText || 'Request failed')
   }
   if (!response.body) throw new ApiError(502, 'no-stream', 'The tutor reply did not stream.')
