@@ -289,6 +289,12 @@ wheels = [
 name = "brainbench-agents"
 version = "0.1.0"
 source = { editable = "packages/agents" }
+dependencies = [
+    { name = "strands-agents" },
+]
+
+[package.metadata]
+requires-dist = [{ name = "strands-agents", specifier = "==1.59.0" }]
 
 [[package]]
 name = "brainbench-api"
