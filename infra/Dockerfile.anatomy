@@ -1,0 +1,13 @@
+# Figure sandbox (design D7): Node 20 and Chromium only, no npm packages. The vendored skill's
+# kit/ and scripts/ are mounted read-only at /skill and the job workspace at /workspace.
+FROM node:20-bookworm-slim@sha256:2cf067cfed83d5ea958367df9f966191a942351a2df77d6f0193e162b5febfc0
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends chromium fonts-liberation fonts-noto-core \
+    && rm -rf /var/lib/apt/lists/*
+
+ENV CHROME_PATH=/usr/bin/chromium \
+    HOME=/tmp
+USER node
+WORKDIR /workspace
+CMD ["node", "--version"]

@@ -8,7 +8,7 @@
   "scripts": {
     "dev": "bun --hot server.ts",
     "build": "bun build --target=bun --minify --sourcemap=linked server.ts --outdir dist",
-    "start": "bun dist/server.js",
+    "start": "cd dist && bun server.js",
     "test": "bun test",
     "typecheck": "tsc --noEmit",
     "lint": "oxlint --deny-warnings src tests server.ts && prettier --check .",

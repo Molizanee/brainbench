@@ -1,0 +1,120 @@
+# BrainBench installer: `docker compose up` from a fresh clone is the whole install (design D11).
+# Every variable below has a working default; no .env file is needed.
+
+x-app: &app
+  build:
+    context: .
+    dockerfile: infra/Dockerfile.app
+  environment: &app-env
+    DATABASE_URL: postgresql+asyncpg://brainbench:brainbench@db:5432/brainbench
+    BRAINBENCH_DATA: /data
+    BRAINBENCH_OAUTH_CALLBACKS: ${BRAINBENCH_OAUTH_CALLBACKS:-1}
+    BRAINBENCH_PORT: ${BRAINBENCH_PORT:-3000}
+    BRAINBENCH_BIND: ${BRAINBENCH_BIND:-127.0.0.1}
+    BRAINBENCH_PUBLIC_URL: ${BRAINBENCH_PUBLIC_URL:-}
+    BRAINBENCH_DATA_HOST: ${BRAINBENCH_DATA_HOST:-}
+  volumes:
+    # A host bind mount (never a named volume): sandboxes are siblings started through the host
+    # Docker daemon, which resolves -v sources on the host.
+    - ./data:/data
+
+services:
+  db:
+    image: pgvector/pgvector:pg16
+    environment:
+      POSTGRES_USER: brainbench
+      POSTGRES_PASSWORD: brainbench
+      POSTGRES_DB: brainbench
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U brainbench -d brainbench"]
+      interval: 2s
+      timeout: 5s
+      retries: 30
+    restart: unless-stopped
+
+  # One-shot, idempotent bootstrap: migrate, data dirs, vault key, skill pin, embedding model.
+  init:
+    <<: *app
+    command: ["python", "-m", "app.bootstrap"]
+    restart: "no"
+    depends_on:
+      db:
+        condition: service_healthy
+
+  # Build-only services: `up` builds the sandbox images on the host daemon so the worker can
+  # `docker run` them by these fixed names; the containers exit 0 immediately.
+  sandbox-manim:
+    build:
+      context: .
+      dockerfile: infra/Dockerfile.manim
+    image: brainbench/manim
+    command: ["true"]
+    network_mode: none
+    restart: "no"
+
+  sandbox-anatomy:
+    build:
+      context: .
+      dockerfile: infra/Dockerfile.anatomy
+    image: brainbench/anatomy
+    command: ["true"]
+    network_mode: none
+    restart: "no"
+
+  api:
+    <<: *app
+    command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+    depends_on:
+      db:
+        condition: service_healthy
+      init:
+        condition: service_completed_successfully
+    ports:
+      # OAuth loopback callbacks; only the host's loopback reaches them.
+      - "127.0.0.1:54545:54545"
+      - "127.0.0.1:1455:1455"
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/health', timeout=2)"
+      interval: 3s
+      timeout: 5s
+      retries: 40
+    restart: unless-stopped
+
+  worker:
+    <<: *app
+    command: ["python", "-m", "app.worker"]
+    volumes:
+      - ./data:/data
+      - /var/run/docker.sock:/var/run/docker.sock
+    depends_on:
+      api:
+        condition: service_healthy
+      sandbox-manim:
+        condition: service_completed_successfully
+      sandbox-anatomy:
+        condition: service_completed_successfully
+    restart: unless-stopped
+
+  web:
+    build:
+      context: .
+      dockerfile: infra/Dockerfile.web
+    environment:
+      API_URL: http://api:8000
+      BRAINBENCH_PORT: ${BRAINBENCH_PORT:-3000}
+      BRAINBENCH_PUBLIC_URL: ${BRAINBENCH_PUBLIC_URL:-}
+    ports:
+      - "${BRAINBENCH_BIND:-127.0.0.1}:${BRAINBENCH_PORT:-3000}:3000"
+    depends_on:
+      api:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  pgdata:

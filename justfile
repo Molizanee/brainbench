@@ -10,10 +10,15 @@ install:
     uv sync --frozen
     bun install --frozen-lockfile
 
-# API with reload on :8000 and the Bun dev server with HMR on :3000.
+dev_db := "postgresql+asyncpg://brainbench:brainbench@127.0.0.1:54329/brainbench"
+
+# Postgres in Docker, then the API with reload on :8000 and the Bun dev server with HMR on :3000.
 dev: install
+    docker compose -f docker-compose.yml -f infra/compose.dev.yml up -d --wait db
+    cd apps/api && DATABASE_URL={{dev_db}} uv run alembic upgrade head
+    mkdir -p data
     trap 'kill 0' EXIT; \
-    (cd apps/api && uv run uvicorn app.main:app --reload --port 8000) & \
+    (cd apps/api && DATABASE_URL={{dev_db}} BRAINBENCH_DATA="$PWD/../../data" uv run uvicorn app.main:app --reload --port 8000) & \
     (cd apps/web && API_URL=http://localhost:8000 bun run dev) & \
     wait
 
@@ -42,7 +47,7 @@ test-py-eager:
 test-web:
     bun run --cwd apps/web test
 
-# Build every image of the stack.
+# Build every image of the stack (app, web, and both sandboxes).
 build:
     docker compose build
 
