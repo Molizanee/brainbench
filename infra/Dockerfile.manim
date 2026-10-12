@@ -1,0 +1,18 @@
+# Manim render sandbox (design D7). Built by the build-only `sandbox-manim` compose service and
+# run by the worker as a sibling container with --network none, a read-only root filesystem,
+# /work mounted read-only and /out as the only writable mount.
+FROM manimcommunity/manim:v0.22.0@sha256:3c3ce944c09d6fa73de59fe1e7a95e334e193ae9c2275d65937054e675f87b03
+
+USER root
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends ffmpeg \
+    && rm -rf /var/lib/apt/lists/*
+
+USER manimuser
+# The root filesystem is read-only at run time; caches go to the /tmp tmpfs.
+ENV HOME=/tmp \
+    XDG_CACHE_HOME=/tmp/.cache \
+    XDG_CONFIG_HOME=/tmp/.config \
+    MPLCONFIGDIR=/tmp/.matplotlib
+WORKDIR /work
+CMD ["manim", "--version"]

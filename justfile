@@ -47,5 +47,9 @@ build:
     docker compose build
 
 # Image-level checks that need Docker.
-smoke:
-    @echo "no smoke checks yet"
+smoke: smoke-manim
+
+# Build the Manim sandbox and render the two-section fixture with the sandbox flags.
+smoke-manim:
+    docker build -f infra/Dockerfile.manim -t brainbench/manim .
+    infra/smoke/manim_check.sh brainbench/manim
