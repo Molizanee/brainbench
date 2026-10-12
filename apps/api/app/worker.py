@@ -2,11 +2,15 @@
 
 Start-up order: schema revision guard, host data path (self-inspection through the Docker
 socket, ``BRAINBENCH_DATA_HOST`` override), sandbox probe, then the job loop. ``import app.jobs``
-registers every handler. The claim loop is section 2's work; until then the worker idles.
+registers every handler. SIGTERM and SIGINT stop claiming, kill running sandboxes, and hand the
+running jobs back to the queue before the process exits.
 """
 
 import asyncio
 import logging
+import os
+import signal
+import socket
 import sys
 from pathlib import Path
 
@@ -14,8 +18,9 @@ import app.jobs  # noqa: F401  (registers handlers)
 from app.core.config import settings
 from app.core.logging import setup_logging
 from app.db.revision import SchemaMismatch, ensure_schema_at_head
-from app.db.session import engine
+from app.db.session import SessionFactory, engine
 from app.jobs.registry import HANDLERS
+from app.jobs.runner import Runner
 from app.services.host_paths import (
     HostPathError,
     SandboxProbeError,
@@ -44,9 +49,13 @@ async def run() -> None:
     revision = await ensure_schema_at_head(engine, "worker")
     log.info("schema revision %s", revision)
     log.info("worker started with handlers: %s", ", ".join(sorted(HANDLERS)))
-    while True:
-        log.debug("no claim loop yet; sleeping %.1fs", settings.worker_idle_sleep_s)
-        await asyncio.sleep(settings.worker_idle_sleep_s)
+    stop = asyncio.Event()
+    loop = asyncio.get_running_loop()
+    for sig in (signal.SIGTERM, signal.SIGINT):
+        loop.add_signal_handler(sig, stop.set)
+    runner = Runner(SessionFactory, worker_id=f"{socket.gethostname()}:{os.getpid()}")
+    await runner.run(stop)
+    log.info("worker stopped")
 
 
 def main() -> None:

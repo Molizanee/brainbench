@@ -1,6 +1,7 @@
 import { lazy, type ComponentType, type LazyExoticComponent } from 'react'
 import { Navigate, type RouteObject } from 'react-router'
 import CableIcon from '@mui/icons-material/Cable'
+import WorkHistoryIcon from '@mui/icons-material/WorkHistory'
 import { AppShell } from './components/AppShell'
 import { RequireSession } from './components/RequireSession'
 
@@ -24,6 +25,12 @@ export const sections: SectionRoute[] = [
     label: 'Providers',
     icon: CableIcon,
     Page: lazy(() => import('./pages/providers/ProvidersPage')),
+  },
+  {
+    path: 'jobs',
+    label: 'Jobs',
+    icon: WorkHistoryIcon,
+    Page: lazy(() => import('./pages/jobs/JobsPage')),
   },
 ]
 

@@ -34,6 +34,14 @@ class Settings(BaseSettings):
     worker_idle_sleep_s: float = 5.0
     job_concurrency: int = 2
     render_concurrency: int = 1
+    job_heartbeat_s: float = 15.0
+    job_stale_after_s: float = 120.0
+    job_reaper_interval_s: float = 15.0
+    job_cancel_poll_s: float = 5.0
+    job_cancel_grace_s: float = 10.0
+    job_retry_base_s: float = 30.0
+    job_provider_wait_s: float = 300.0
+    job_provider_jitter_s: float = 60.0
 
     @property
     def jobs_dir(self) -> Path:
