@@ -1,0 +1,8 @@
+{
+  "name": "brainbench",
+  "private": true,
+  "workspaces": ["apps/web"],
+  "engines": {
+    "bun": "1.3.13"
+  }
+}

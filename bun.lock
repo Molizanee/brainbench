@@ -1,0 +1,15 @@
+{
+  "lockfileVersion": 1,
+  "configVersion": 1,
+  "workspaces": {
+    "": {
+      "name": "brainbench",
+    },
+    "apps/web": {
+      "name": "@brainbench/web",
+    },
+  },
+  "packages": {
+    "@brainbench/web": ["@brainbench/web@workspace:apps/web"],
+  }
+}
