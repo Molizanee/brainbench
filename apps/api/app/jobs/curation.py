@@ -7,6 +7,8 @@ The handler runs the steps in a fixed order; agents only fill in each step's str
 3. reconcile against existing topics (deterministic; committed so topic ids are stable);
 4. scoring in batches against the profile and session history (``scoring``), then the
    threshold filter that splits kept and excluded topics;
+5. prerequisites over the kept topics (``prerequisites``), cycles broken by dropping the
+   lowest-confidence edge, each drop recorded in the run log;
 
 Every completed unit of work (a window, a step) is saved to the job checkpoint, so a provider
 limit deferral or a retry resumes after it instead of starting over. Payload:
@@ -33,6 +35,7 @@ from app.jobs.registry import JobContext, register
 from app.services import curation as service
 from app.services import embeddings, providers
 from app.services import search as search_service
+from app.services.planner import Edge, break_cycles
 from app.services.profile import get_profile, list_target_skills
 from app.services.progress import mastered_topic_ids, session_history
 
@@ -46,10 +49,12 @@ from strands import Agent
 from strands.event_loop._retry import ModelRetryStrategy
 
 from brainbench_agents.curation import (
+    PREREQUISITES,
     SCORING,
     TOPIC_EXTRACTION,
     TOPIC_MERGE,
     MergeCandidate,
+    Prerequisites,
     TopicExtraction,
     TopicMerge,
     TopicScore,
@@ -60,6 +65,8 @@ from brainbench_agents.curation import (
     make_get_sessions,
     make_search_chunks,
     merge_prompt,
+    prerequisites_agent,
+    prerequisites_prompt,
     run_structured,
     scoring_agent,
     scoring_prompt,
@@ -136,6 +143,8 @@ class CurationJob:
                 )
             case "topic_merge":
                 agent = topic_merge_agent(routed.model, **common)
+            case "prerequisites":
+                agent = prerequisites_agent(routed.model, **common)
             case "scoring":
                 agent = scoring_agent(
                     routed.model,
@@ -191,7 +200,10 @@ class CurationJob:
         candidates = await self._extract()
         merged = await self._merge(candidates)
         topics = await self._reconcile(run, merged)
-        await self._score(topics)
+        scores = await self._score(topics)
+        threshold = float(self.state["inputs"]["threshold"])
+        kept = [t for t, s in zip(topics, scores, strict=True) if s.relevance >= threshold]
+        await self._prerequisites(kept)
         run.finished_at = datetime.now(UTC)
         self._write_run(run)
         await self.save()
@@ -400,3 +412,45 @@ class CurationJob:
     async def _targets(self) -> list[TargetSkill]:
         profile = await get_profile(self.session)
         return [] if profile is None else await list_target_skills(self.session, profile.id)
+
+    async def _prerequisites(self, kept: list[service.ReconciledTopic]) -> list[Edge]:
+        """Prerequisite edges between kept topics, made acyclic; checkpointed as one step."""
+        if "edges" in self.state:
+            return [Edge(**e) for e in self.state["edges"]]
+        edges: list[Edge] = []
+        if len(kept) > 1:
+            await self.ctx.progress("ordering topics by prerequisites")
+            keyed = {f"T{n}": t for n, t in enumerate(kept, start=1)}
+            prompt = prerequisites_prompt(
+                [{"key": k, "title": t.title, "summary": t.summary} for k, t in keyed.items()]
+            )
+            answer = await self.call(PREREQUISITES, Prerequisites, prompt)
+            proposed = [
+                Edge(
+                    topic=str(keyed[e.topic.strip()].topic_id),
+                    requires=str(keyed[e.requires.strip()].topic_id),
+                    confidence=e.confidence,
+                )
+                for e in answer.edges
+                if e.topic.strip() in keyed and e.requires.strip() in keyed
+            ]
+            edges, dropped = break_cycles({str(t.topic_id) for t in kept}, proposed)
+            titles = {str(t.topic_id): t.title for t in kept}
+            for drop in dropped:
+                self.log_step(
+                    PREREQUISITES,
+                    f"cycle broken: dropped '{titles[drop.edge.topic]} requires "
+                    f"{titles[drop.edge.requires]}' (confidence {drop.edge.confidence})",
+                    dropped={
+                        "topic": drop.edge.topic,
+                        "requires": drop.edge.requires,
+                        "confidence": drop.edge.confidence,
+                    },
+                    cycle=[titles[k] for k in drop.cycle],
+                )
+        self.log_step(PREREQUISITES, f"{len(edges)} prerequisite relations")
+        self.state["edges"] = [
+            {"topic": e.topic, "requires": e.requires, "confidence": e.confidence} for e in edges
+        ]
+        await self.save()
+        return edges

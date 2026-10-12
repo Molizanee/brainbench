@@ -135,9 +135,9 @@ async def test_deferral_resumes_after_the_last_completed_window(
     await HANDLERS["curation"](make_ctx(session, run_id, checkpoint=checkpoint))
 
     assert sorted((await topic_titles(session)).values()) == ["Logs", "Raft", "Terms"]
-    # Windows 2 and 3 and one scoring batch; no merge call without duplicates.
-    assert script.steps == ["topic_extraction", "topic_extraction", "topic_extraction", "scoring"]
-    assert len(model.calls) == 3
+    # Windows 2 and 3, one scoring batch, prerequisites; no merge call without duplicates.
+    assert script.steps[1:] == ["topic_extraction", "topic_extraction", "scoring", "prerequisites"]
+    assert len(model.calls) == 4
 
 
 async def test_reconciled_topics_are_committed_before_later_steps(
@@ -220,3 +220,39 @@ async def test_scoring_sees_the_profile_and_session_history_in_batches(
     assert held["relevance"] < 0.2 and held["already_held"]
     messages = [entry["message"] for entry in recorder.saved[-1]["log"]]
     assert "kept 1 of 3 topics; excluded 2 below threshold 0.4" in messages
+
+
+async def test_prerequisite_cycle_is_broken_at_the_weakest_edge_and_logged(
+    session: AsyncSession, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    await seed_profile(session)
+    await seed_source(session, "Raft", ["Terms: a.", "Logs: b.", "Snapshots: c.", "CSS: d."])
+    script = Script(
+        relevance={"CSS": 0.1},
+        edges=[
+            ("Logs", "Terms", 0.9),
+            ("Snapshots", "Logs", 0.8),
+            ("Terms", "Snapshots", 0.3),
+            ("Logs", "Logs", 1.0),
+        ],
+    )
+    model = install_script(monkeypatch, script)
+    run = await new_run(session)
+    recorder = Checkpoints()
+
+    await HANDLERS["curation"](make_ctx(session, run.id, recorder=recorder))
+
+    ids = {title: str(topic_id) for topic_id, title in (await topic_titles(session)).items()}
+    edges = {(e["topic"], e["requires"]) for e in recorder.saved[-1]["edges"]}
+    assert edges == {(ids["Logs"], ids["Terms"]), (ids["Snapshots"], ids["Logs"])}
+    [prereq_call] = [c for c in model.calls if "Prerequisites" in c.tool_names]
+    assert "CSS" not in prereq_call.prompt  # excluded topics are not ordered
+    await session.refresh(run)
+    [entry] = [e for e in run.step_log if e["message"].startswith("cycle broken")]
+    assert entry["message"] == "cycle broken: dropped 'Terms requires Snapshots' (confidence 0.3)"
+    assert entry["dropped"] == {
+        "topic": ids["Terms"],
+        "requires": ids["Snapshots"],
+        "confidence": 0.3,
+    }
+    assert sorted(entry["cycle"]) == ["Logs", "Snapshots", "Terms"]
