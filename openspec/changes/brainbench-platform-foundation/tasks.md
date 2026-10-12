@@ -29,7 +29,7 @@
 
 ## 4. Learner profile
 
-- [ ] 4.1 API: `POST/GET/PATCH /profile`, current skills and target skills CRUD, preferences, validation rules (single profile, time budget > 0, duplicate skill names, target level above current), version increment on every change
+- [x] 4.1 API: `POST/GET/PATCH /profile`, current skills and target skills CRUD, preferences, validation rules (single profile, time budget > 0, duplicate skill names, target level above current), version increment on every change
 - [ ] 4.2 Web: profile page with MUI forms for skills, targets, time budget, preferences; mutations via TanStack Query with API validation errors shown per field
 - [ ] 4.3 Tests: each validation scenario from the learner-profile spec
 
