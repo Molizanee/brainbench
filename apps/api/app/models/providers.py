@@ -6,7 +6,7 @@ from uuid import UUID
 
 from pydantic import BaseModel, Field
 
-AccountStatus = Literal["connected", "needs-reauthentication", "locked", "blocked", "disabled"]
+AccountStatus = Literal["connected", "needs-reauthentication", "locked", "blocked"]
 LoginKind = Literal["oauth-code", "device-code"]
 LoginStatus = Literal["pending", "connected", "failed", "expired"]
 
@@ -51,3 +51,75 @@ class LoginRead(BaseModel):
     credential_id: UUID | None
     error: str | None
     instructions: str | None
+
+
+class ModelRead(BaseModel):
+    id: str
+    name: str
+    context_window: int
+    max_output: int
+    reasoning: bool
+    default: bool
+
+
+class BlockRead(BaseModel):
+    scope: str
+    until: datetime
+    reason: str | None
+
+
+class WindowRead(BaseModel):
+    window: str
+    used_pct: float | None
+    resets_at: datetime | None
+    fetched_at: datetime
+
+
+class UsageTodayRead(BaseModel):
+    calls: int = 0
+    input_tokens: int = 0
+    output_tokens: int = 0
+
+
+class AccountRead(BaseModel):
+    """One connected account: identity and expiry only, never a token."""
+
+    id: UUID
+    provider: str
+    email: str | None
+    account_id: str | None
+    org_id: str | None
+    org_name: str | None
+    plan: str | None
+    status: AccountStatus
+    disabled_cause: str | None
+    expires_at: datetime | None
+    priority: int
+    blocked_until: datetime | None
+    blocks: list[BlockRead]
+    windows: list[WindowRead]
+    usage_today: UsageTodayRead
+    created_at: datetime | None
+
+
+class ProviderRead(BaseModel):
+    id: str
+    name: str
+    api: str
+    enabled: bool
+    login_kinds: list[LoginKind]
+    callback_port: int | None
+    policy_notice: str | None
+    models: list[ModelRead]
+    accounts: list[AccountRead]
+
+
+class ProvidersRead(BaseModel):
+    vault: VaultRead
+    callbacks_enabled: bool
+    usage_since: datetime
+    providers: list[ProviderRead]
+
+
+class AccountUpdate(BaseModel):
+    priority: int = Field(ge=-1000, le=1000)

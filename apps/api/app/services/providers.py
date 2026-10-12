@@ -11,7 +11,7 @@ import logging
 from collections.abc import AsyncIterator, Callable, Iterator
 from contextlib import asynccontextmanager, contextmanager
 from dataclasses import dataclass, field
-from datetime import UTC, datetime
+from datetime import UTC, datetime, time
 from functools import cache
 from pathlib import Path
 from uuid import UUID
@@ -22,6 +22,16 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.config import settings
 from app.core.errors import Conflict, DomainError, NotFound
 from app.db.session import SessionFactory as AppSessionFactory
+from app.models.providers import (
+    AccountRead,
+    BlockRead,
+    ModelRead,
+    ProviderRead,
+    ProvidersRead,
+    UsageTodayRead,
+    VaultRead,
+    WindowRead,
+)
 from app.services.instance_settings import load_instance_settings
 from app.services.provider_store import SessionFactory, SqlProviderStore
 from app.services.vault_key import (
@@ -37,7 +47,8 @@ from brainbench_providers.oauth.manager import LoginManager, LoginView
 from brainbench_providers.oauth.tokens import HttpFactory, TokenSet, default_http
 from brainbench_providers.refresher import SWEEP_INTERVAL_S, Refresher
 from brainbench_providers.registry import ProviderSpec, Registry, load_registry
-from brainbench_providers.select import AccountPool
+from brainbench_providers.select import AccountPool, blocked_until
+from brainbench_providers.usage import UsageMonitor
 from brainbench_providers.vault import Identity, VaultCipher, identity_key, seal_tokens
 
 log = logging.getLogger(__name__)
@@ -123,6 +134,7 @@ class ProviderRuntime:
     logins: LoginManager = field(init=False)
     refresher: Refresher = field(init=False)
     pool: AccountPool = field(init=False)
+    usage: UsageMonitor = field(init=False)
     _cipher: tuple[str, VaultCipher] | None = field(default=None, init=False, repr=False)
 
     def __post_init__(self) -> None:
@@ -146,6 +158,18 @@ class ProviderRuntime:
         self.pool = AccountPool(
             store=self.store, cipher=self.cipher, refresher=self.refresher, clock=self.clock
         )
+        self.usage = UsageMonitor(
+            registry=self.registry,
+            store=self.store,
+            cipher=self.cipher,
+            http=self.http,
+            clock=self.clock,
+        )
+        self.refresher.hooks.append(self._refresh_usage)
+
+    async def _refresh_usage(self) -> None:
+        if (await self.vault_status()).state == "ok":
+            await self.usage.refresh_stale()
 
     async def enabled_ids(self) -> list[str] | None:
         async with self.session_factory() as session:
@@ -208,6 +232,99 @@ class ProviderRuntime:
         self.logins.clear()
         log.warning("vault reset: %d credentials deleted, new key generated", deleted)
         return await self.vault_status()
+
+    # --- overview (task 3.5) ------------------------------------------------------------------
+
+    async def overview(self) -> ProvidersRead:
+        """Every registry provider with its accounts, windows, blocks, and today's usage."""
+        now = self.clock()
+        since = datetime.combine(now.date(), time.min, tzinfo=UTC)
+        vault = await self.vault_status()
+        enabled = await self.enabled_ids()
+        credentials = await self.store.list_credentials()
+        blocks = await self.store.active_blocks(now)
+        windows = await self.store.usage_windows()
+        usage = {u.credential_id: u for u in await self.store.usage_since(since)}
+        providers = []
+        for spec in self.registry.providers:
+            accounts = []
+            for c in (c for c in credentials if c.provider == spec.id):
+                until = blocked_until(c.id, blocks, windows, now)
+                status = (
+                    "locked"
+                    if vault.state == "locked"
+                    else "needs-reauthentication"
+                    if c.disabled
+                    else "blocked"
+                    if until is not None
+                    else "connected"
+                )
+                today = usage.get(c.id)
+                accounts.append(
+                    AccountRead(
+                        id=c.id,
+                        provider=c.provider,
+                        email=c.identity.get("email"),
+                        account_id=c.identity.get("account_id"),
+                        org_id=c.identity.get("org_id"),
+                        org_name=c.identity.get("org_name"),
+                        plan=c.identity.get("plan"),
+                        status=status,
+                        disabled_cause=c.disabled_cause,
+                        expires_at=c.expires_at,
+                        priority=c.priority,
+                        blocked_until=until,
+                        blocks=[
+                            BlockRead(scope=b.scope, until=b.until, reason=b.reason)
+                            for b in blocks
+                            if b.credential_id == c.id
+                        ],
+                        windows=[
+                            WindowRead(
+                                window=w.window,
+                                used_pct=w.used_pct,
+                                resets_at=w.resets_at,
+                                fetched_at=w.fetched_at,
+                            )
+                            for w in sorted(windows, key=lambda w: w.window)
+                            if w.credential_id == c.id
+                        ],
+                        usage_today=UsageTodayRead(
+                            calls=today.calls if today else 0,
+                            input_tokens=today.input_tokens if today else 0,
+                            output_tokens=today.output_tokens if today else 0,
+                        ),
+                        created_at=c.created_at,
+                    )
+                )
+            code = next((login for login in spec.login if login.kind == "oauth-code"), None)
+            providers.append(
+                ProviderRead.model_validate(
+                    {
+                        "id": spec.id,
+                        "name": spec.name,
+                        "api": spec.api,
+                        "enabled": enabled is None or spec.id in enabled,
+                        "login_kinds": spec.login_kinds,
+                        "callback_port": getattr(code, "callback_port", None),
+                        "policy_notice": spec.policy_notice,
+                        "models": [ModelRead.model_validate(m.model_dump()) for m in spec.models],
+                        "accounts": accounts,
+                    }
+                )
+            )
+        return ProvidersRead(
+            vault=VaultRead.model_validate(
+                {"state": vault.state, "detail": vault.detail, "key_path": str(vault.key_path)}
+            ),
+            callbacks_enabled=self.callbacks_enabled,
+            usage_since=since,
+            providers=providers,
+        )
+
+    async def set_priority(self, credential_id: UUID, priority: int) -> None:
+        if not await self.store.set_priority(credential_id, priority):
+            raise NotFound("Unknown account", code="account-not-found")
 
     # --- logins (task 3.3) --------------------------------------------------------------------
 

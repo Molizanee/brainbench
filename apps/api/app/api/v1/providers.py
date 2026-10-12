@@ -1,8 +1,17 @@
 from dataclasses import asdict
+from uuid import UUID
 
 from fastapi import APIRouter, Depends, status
 
-from app.models.providers import LoginComplete, LoginRead, LoginStart, VaultRead, VaultReset
+from app.models.providers import (
+    AccountUpdate,
+    LoginComplete,
+    LoginRead,
+    LoginStart,
+    ProvidersRead,
+    VaultRead,
+    VaultReset,
+)
 from app.services.providers import (
     ProviderRuntime,
     VaultStatus,
@@ -18,6 +27,20 @@ def _vault(status: VaultStatus) -> VaultRead:
     return VaultRead.model_validate(
         {"state": status.state, "detail": status.detail, "key_path": str(status.key_path)}
     )
+
+
+@router.get("", response_model=ProvidersRead)
+async def list_providers(runtime: ProviderRuntime = Depends(get_provider_runtime)) -> ProvidersRead:
+    """Registry providers with their accounts (identity, status, windows, blocks, usage today)."""
+    return await runtime.overview()
+
+
+@router.patch("/accounts/{account_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def update_account(
+    account_id: UUID, body: AccountUpdate, runtime: ProviderRuntime = Depends(get_provider_runtime)
+) -> None:
+    """Set the account's priority (lower is tried first when usage is equal)."""
+    await runtime.set_priority(account_id, body.priority)
 
 
 @router.post("/vault/reset", response_model=VaultRead)

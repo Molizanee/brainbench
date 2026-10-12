@@ -1,4 +1,5 @@
 from collections.abc import Iterator
+from datetime import timedelta
 from pathlib import Path
 
 import pytest
@@ -113,3 +114,79 @@ async def test_locked_vault_blocks_new_logins(
     assert response.status_code == 409
     assert response.json()["detail"]["code"] == "vault-locked"
     assert str(runtime.key_path) in response.json()["detail"]["message"]
+
+
+def connect(api: TestClient, fake: FakeProviders, provider: str = "anthropic") -> str:
+    login = api.post(f"/api/providers/{provider}/logins", json={"kind": "oauth-code"}).json()
+    redirect = fake.authorize(login["authorize_url"])
+    done = api.post(f"/api/providers/logins/{login['login_id']}/complete", json={"input": redirect})
+    return str(done.json()["credential_id"])
+
+
+def test_registry_providers_are_listed_before_any_account(api: TestClient) -> None:
+    body = api.get("/api/providers").json()
+    assert body["vault"]["state"] == "empty" and body["callbacks_enabled"] is False
+    providers = {p["id"]: p for p in body["providers"]}
+    assert list(providers) == ["anthropic", "openai-codex"]
+    assert providers["anthropic"]["login_kinds"] == ["oauth-code"]
+    assert providers["openai-codex"]["login_kinds"] == ["oauth-code", "device-code"]
+    assert providers["anthropic"]["callback_port"] == 54545
+    assert providers["anthropic"]["models"][0]["default"] is True
+    assert "risk" in providers["anthropic"]["policy_notice"]
+    assert all(p["enabled"] and p["accounts"] == [] for p in providers.values())
+
+
+async def test_connected_account_shows_identity_windows_blocks_and_usage(
+    api: TestClient, fake: FakeProviders, runtime: ProviderRuntime
+) -> None:
+    fake.usage["anthropic"] = {"five_hour": {"utilization": 30, "resets_at": "2099-01-01T00:00Z"}}
+    account_id = connect(api, fake)
+    await runtime.usage.refresh_stale()
+    handle = await runtime.pool.lease("anthropic")
+    await handle.record_usage(
+        model="claude-opus-5-5", task_class="curation", input_tokens=120, output_tokens=30
+    )
+    await handle.record_usage(
+        model="claude-opus-5-5", task_class="tutoring", input_tokens=10, output_tokens=5
+    )
+    await handle.rate_limited("7d", runtime.clock() + timedelta(hours=2), "rate limited")
+    response = api.get("/api/providers")
+    (account,) = response.json()["providers"][0]["accounts"]
+    assert account["id"] == account_id
+    assert (account["email"], account["org_id"], account["org_name"]) == (
+        "dev@example.com",
+        "org-1",
+        "Personal",
+    )
+    assert account["status"] == "blocked" and account["blocked_until"]
+    assert [b["scope"] for b in account["blocks"]] == ["7d"]
+    assert [(w["window"], w["used_pct"]) for w in account["windows"]] == [("5h", 30.0)]
+    assert account["usage_today"] == {"calls": 2, "input_tokens": 130, "output_tokens": 35}
+    assert set(account) >= {"expires_at", "priority"}
+    for token in fake.issued():
+        assert token not in response.text
+    assert "token" not in "".join(account)
+
+
+async def test_disabled_provider_and_locked_vault_are_reported(
+    api: TestClient, fake: FakeProviders, runtime: ProviderRuntime, session: AsyncSession
+) -> None:
+    connect(api, fake)
+    row = await load_instance_settings(session)
+    row.enabled_providers = ["openai-codex"]
+    await session.commit()
+    runtime.key_path.unlink()
+    body = api.get("/api/providers").json()
+    assert body["vault"]["state"] == "locked"
+    anthropic = body["providers"][0]
+    assert anthropic["enabled"] is False
+    assert anthropic["accounts"][0]["status"] == "locked"
+
+
+def test_account_priority_can_be_changed(api: TestClient, fake: FakeProviders) -> None:
+    account_id = connect(api, fake)
+    response = api.patch(f"/api/providers/accounts/{account_id}", json={"priority": 3})
+    assert response.status_code == 204
+    assert api.get("/api/providers").json()["providers"][0]["accounts"][0]["priority"] == 3
+    missing = "00000000-0000-0000-0000-000000000000"
+    assert api.patch(f"/api/providers/accounts/{missing}", json={"priority": 1}).status_code == 404

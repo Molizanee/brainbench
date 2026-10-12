@@ -72,7 +72,7 @@ class Env:
         stored = await self.store.upsert_credential(
             provider=provider,
             identity_key=key,
-            identity={"email": email, "org_id": org},
+            identity={"email": email, "org_id": org, "account_id": org},
             tokens=seal_tokens(
                 self.cipher,
                 provider=provider,
