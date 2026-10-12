@@ -103,6 +103,7 @@ jobs:
           --health-cmd "pg_isready -U brainbench" --health-interval 2s --health-retries 30
     env:
       DATABASE_URL: postgresql+asyncpg://brainbench:brainbench@localhost:5432/brainbench
+      BRAINBENCH_DATA: ${{ github.workspace }}/data
     steps:
       - uses: actions/checkout@v5
       - uses: astral-sh/setup-uv@v6

@@ -25,3 +25,8 @@ test('jobs.updated refreshes job queries plus the keys its job type registers', 
 test('jobs.event adds nothing on top of jobs.updated', () => {
   expect(keysForEvent({ type: 'jobs.event', payload: {} }, eventInvalidations)).toEqual([])
 })
+
+test('sources.updated invalidates every sources query', () => {
+  const event = { type: 'sources.updated', payload: { source_id: 's1', status: 'ready' } }
+  expect(keysForEvent(event, eventInvalidations)).toEqual([['sources']])
+})

@@ -84,8 +84,9 @@ smoke-manim:
 # Every Postgres-backed integration test against DATABASE_URL (migrated first). CI runs this.
 integration:
     test -n "${DATABASE_URL:-}" || { echo "set DATABASE_URL to a Postgres database" >&2; exit 1; }
+    mkdir -p "${BRAINBENCH_DATA:-$PWD/data}"
     cd apps/api && uv run alembic upgrade head
-    uv run pytest -m integration apps/api/tests/integration -q
+    BRAINBENCH_DATA="${BRAINBENCH_DATA:-$PWD/data}" uv run pytest -m integration apps/api/tests/integration -q
 
 # Section 2: job queue, LISTEN/NOTIFY and runner tests against the Postgres in DATABASE_URL.
 jobs-integration:
@@ -96,3 +97,8 @@ jobs-integration:
 providers-integration:
     cd apps/api && uv run alembic upgrade head
     uv run pytest -m integration apps/api/tests/integration -q
+
+# Ingestion and pgvector search tests against DATABASE_URL, with the real embedding model.
+ingest-integration:
+    mkdir -p "${BRAINBENCH_DATA:-$PWD/data}"
+    BRAINBENCH_DATA="${BRAINBENCH_DATA:-$PWD/data}" uv run pytest -m integration apps/api/tests/integration/test_ingest_search.py

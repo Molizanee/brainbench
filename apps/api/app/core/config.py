@@ -45,6 +45,12 @@ class Settings(BaseSettings):
     job_retry_base_s: float = 30.0
     job_provider_wait_s: float = 300.0
     job_provider_jitter_s: float = 60.0
+    # Material ingestion (design D5).
+    pdf_max_bytes: int = 50 * 1024 * 1024
+    git_file_max_bytes: int = 1024 * 1024
+    git_clone_timeout_s: float = 300.0
+    url_fetch_timeout_s: float = 60.0
+    embedding_batch_size: int = 64
 
     @property
     def jobs_dir(self) -> Path:
@@ -57,6 +63,11 @@ class Settings(BaseSettings):
     @property
     def models_dir(self) -> Path:
         return self.brainbench_data / "models"
+
+    @property
+    def sources_dir(self) -> Path:
+        """Uploaded source files (PDFs), one per source id."""
+        return self.brainbench_data / "sources"
 
     @property
     def skills_dir(self) -> Path:

@@ -1,5 +1,6 @@
 import type { QueryKey } from '@tanstack/react-query'
 import { jobKeys, type JobRead } from '../api/jobs'
+import { sourceKeys } from '../api/sources'
 import type { EventInvalidations } from './useEventSource'
 
 /**
@@ -23,4 +24,6 @@ export const eventInvalidations: EventInvalidations = {
   },
   // Always sent right after `jobs.updated` for the same job, which already refreshed it.
   'jobs.event': () => [],
+  // Written by the ingest job on every source status change.
+  'sources.updated': () => [sourceKeys.all],
 }
