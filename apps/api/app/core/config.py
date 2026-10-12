@@ -59,6 +59,11 @@ class Settings(BaseSettings):
     render_cpus: float = 2.0
     render_memory: str = "4g"
     render_attempts: int = 3
+    figure_max_turns: int = 60
+    figure_wall_clock_s: float = 30 * 60.0
+    figure_node_timeout_s: float = 180.0
+    figure_cpus: float = 2.0
+    figure_memory: str = "2g"
 
     @property
     def jobs_dir(self) -> Path:

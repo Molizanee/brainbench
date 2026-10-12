@@ -5,7 +5,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 
 from brainbench_agents.visual.manim import MANIM_VERSION, template_for
-from brainbench_agents.visual.models import ChunkRef, Depth, Format, Storyboard
+from brainbench_agents.visual.models import ChunkRef, Depth, FigureBrief, Format, Storyboard
 
 DEPTH_RULES: dict[str, str] = {
     "intuition-first": (
@@ -235,4 +235,73 @@ def repair_prompt(
         parts.append("Contract problems:\n- " + "\n- ".join(problems))
     parts.append("End of the render log:\n```\n" + log_tail + "\n```")
     parts.append("Return the corrected script.")
+    return "\n\n".join(parts)
+
+
+FIGURE_ENVIRONMENT = """\
+# How this skill runs inside BrainBench
+
+You are not in Claude Code and there is no user to talk to: never ask a question or wait for \
+confirmation, and ignore instructions about telling the user estimates or running `date`. The \
+size is always **Figure** (one mechanism, 40 to 80 parts); never start a Hero or an Epic.
+
+Your tools (the only way to touch files):
+- list_files(), read_file(path), write_file(path, content): files in your workspace, mounted at \
+/workspace. Paths are relative to it. Nothing outside the workspace is reachable.
+- read_reference(name): the skill's references/<name>.md (motion, verify, 3d, webgl, craft, kit, \
+react, walkthrough).
+- run_node(args): runs `node <args>` in a sandbox with no network, working directory \
+/workspace. The first argument is a script: a workspace file (build.mjs) or one of the skill's \
+scripts (/skill/scripts/capture.mjs). Node flags such as -e are refused. The skill's kit is at \
+/skill/kit (import it as "/skill/kit/iso-kit.mjs") and its scripts at /skill/scripts \
+(inline-kit.mjs for kitScript()). The examples are at /skill/examples, read-only: to read one, \
+run a small workspace script that prints the file; to build or adapt one, write your copy into \
+the workspace (an example's build writes next to itself, which fails on the read-only mount). \
+There are no npm packages.
+- PNG files a run_node call writes are shown to you after the call: capture your figure with \
+run_node(["/skill/scripts/capture.mjs", "figure.html", "--out", "shots/desk.png"]) and look at it.
+
+Deliverables, all in the workspace root:
+1. figure.html: the standalone page (pageHtml with the kit inlined), every style and script \
+inline, no external URL of any kind. It is served under `Content-Security-Policy: sandbox \
+allow-scripts; default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; \
+img-src data:` inside a sandboxed iframe, so fonts, fetches and external images do not load.
+2. preview.png: a capture of the finished figure (desktop width).
+3. The build source (build.mjs and any modules it imports) stays in the workspace.
+
+Work within your turn budget: get a working figure.html and preview.png early, then deepen it. \
+When you are done, reply with a short summary of the figure."""
+
+
+def figure_system(skill_md: str, brief: FigureBrief, storyboard: Storyboard) -> str:
+    return "\n\n".join(
+        [
+            skill_md.strip(),
+            FIGURE_ENVIRONMENT,
+            "# The figure to build\n\nBrief:\n" + brief.model_dump_json(indent=2),
+            "Storyboard it serves (narration is context; the figure is one interactive "
+            "page):\n" + storyboard.model_dump_json(indent=2),
+        ]
+    )
+
+
+def figure_prompt(
+    topic_title: str,
+    *,
+    language: str,
+    feedback: str | None = None,
+    previous_files: Sequence[str] = (),
+) -> str:
+    parts = [
+        f"Build the figure for the topic {topic_title!r}. Labels, hint and readout text are in "
+        f"the learner's language: {language}."
+    ]
+    if previous_files:
+        parts.append(
+            "The previous version's build source is already in your workspace ("
+            + ", ".join(previous_files)
+            + "). Start from it and rebuild figure.html and preview.png."
+        )
+    if feedback:
+        parts.append(f"Learner feedback on the previous figure, address it: {feedback}")
     return "\n\n".join(parts)
