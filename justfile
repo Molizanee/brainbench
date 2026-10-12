@@ -102,3 +102,10 @@ providers-integration:
 ingest-integration:
     mkdir -p "${BRAINBENCH_DATA:-$PWD/data}"
     BRAINBENCH_DATA="${BRAINBENCH_DATA:-$PWD/data}" uv run pytest -m integration apps/api/tests/integration/test_ingest_search.py
+
+# Section 7: sandbox, video and figure tests against the real sandbox images (needs Docker;
+# the Postgres-backed ones also need DATABASE_URL and skip without it).
+visual-integration:
+    docker compose build sandbox-manim sandbox-anatomy
+    mkdir -p "${BRAINBENCH_DATA:-$PWD/data}"
+    BRAINBENCH_DATA="${BRAINBENCH_DATA:-$PWD/data}" uv run pytest -m integration apps/api/tests/integration/visual -q

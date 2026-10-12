@@ -51,6 +51,13 @@ class Settings(BaseSettings):
     git_clone_timeout_s: float = 300.0
     url_fetch_timeout_s: float = 60.0
     embedding_batch_size: int = 64
+    # Visual generation sandboxes (design D7).
+    manim_image: str = "brainbench/manim"
+    anatomy_image: str = "brainbench/anatomy"
+    sandbox_pids_limit: int = 256
+    render_timeout_s: float = 15 * 60.0
+    render_cpus: float = 2.0
+    render_memory: str = "4g"
 
     @property
     def jobs_dir(self) -> Path:
