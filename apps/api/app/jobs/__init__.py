@@ -4,4 +4,5 @@ Handler modules keep their heavy dependencies behind ``lazy import``; importing 
 cheap and only performs the ``@register`` side effect.
 """
 
+from app.jobs import ingest as ingest
 from app.jobs import noop as noop
