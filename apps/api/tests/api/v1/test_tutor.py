@@ -1,6 +1,7 @@
 import json
 import uuid
 from collections.abc import Iterator
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -13,7 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from app.api.deps import require_session
 from app.api.v1 import tutor as tutor_router
 from app.core.config import settings
-from app.db.schema import Source, Topic, TopicRevision, TutorMessage
+from app.db.schema import CurrentSkill, Profile, Source, Topic, TopicRevision, TutorMessage
 from app.services import embeddings, search
 from app.services.providers import ProviderRuntime, get_provider_runtime, get_registry
 from app.services.search import ChunkHit
@@ -276,3 +277,87 @@ async def test_no_provider_rejects_the_message_before_storing_it(
     assert detail["code"] == "no-provider" and "/providers" in detail["message"]
     assert "tutoring" in detail["message"]
     assert list(await session.scalars(select(TutorMessage))) == []
+
+
+# --- tutor-chat spec scenarios ----------------------------------------------------------------
+
+
+async def test_scenario_topic_context_attached_draws_on_topic_chunks_first(
+    api: TestClient,
+    session: AsyncSession,
+    models: FakeModels,
+    hits: dict[str, list[ChunkHit]],
+) -> None:
+    raft = await add_topic(session, "Raft leader election")
+    session.add(Source(id=PDF, type="pdf", title="Raft paper", file_path=f"sources/{PDF}.pdf"))
+    await session.commit()
+    topic_chunk = ChunkHit(uuid.uuid4(), PDF, "Raft paper", {"page": 5}, "Topic passage.", 0.7)
+    other = ChunkHit(uuid.uuid4(), PDF, "Raft paper", {"page": 1}, "Better global match.", 0.95)
+    hits["topic"] = [topic_chunk]
+    hits["all"] = [other, topic_chunk]
+    listed = api.get(f"/api/tutor/threads?context=topic:{raft}").json()
+    assert listed["context"]["label"] == "Raft leader election"
+    thread = api.post(f"/api/tutor/threads?context=topic:{raft}").json()
+    model = models.script(["Answer."])
+    send(api, thread["id"], "Why a majority?")
+    prompt = model.calls[0].messages[-1]["content"][0]["text"]
+    assert prompt.index("Topic passage.") < prompt.index("Better global match.")
+    assert '"Raft leader election"' in (model.calls[0].system_prompt or "")
+
+
+async def test_scenario_material_gap_stated_when_retrieval_is_empty(
+    api: TestClient, models: FakeModels, hits: dict[str, list[ChunkHit]]
+) -> None:
+    thread = api.post("/api/tutor/threads").json()
+    model = models.script(["Your material does not cover CRDTs. In general, a CRDT ..."])
+    received = sse_events(send(api, thread["id"], "What is a CRDT?").text)
+    assert "does not cover" in model.calls[0].messages[-1]["content"][0]["text"]
+    assert [kind for kind, _ in received] == ["delta", "done"]
+    message = received[-1][1]["message"]
+    assert message["content"].startswith("Your material does not cover")
+    assert message["citations"] == []
+
+
+async def test_scenario_depth_preference_and_known_prerequisites_reach_the_tutor(
+    api: TestClient, session: AsyncSession, models: FakeModels
+) -> None:
+    profile = Profile(display_name="Ada", weekly_budget_hours=5, depth="intuition-first")
+    session.add(profile)
+    await session.flush()
+    session.add(
+        CurrentSkill(
+            profile_id=profile.id,
+            name="hash functions",
+            name_normalized="hash functions",
+            level="expert",
+        )
+    )
+    await session.commit()
+    thread = api.post("/api/tutor/threads").json()
+    model = models.script(["Picture a ring."])
+    send(api, thread["id"], "Explain consistent hashing")
+    system = model.calls[0].system_prompt or ""
+    assert "intuitive picture or analogy in plain words before any formal definition" in system
+    assert "proficient or expert in: hash functions" in system
+    assert "never define or re-explain them" in system
+
+
+async def test_scenario_provider_limit_then_resend_after_reset(
+    api: TestClient, models: FakeModels
+) -> None:
+    thread = api.post("/api/tutor/threads").json()
+    reset = "2026-10-12T18:00:00+00:00"
+    limit = ProviderThrottledException(
+        "limit", reset_at=datetime.fromisoformat(reset), scope="all-accounts"
+    )
+    models.script(Turn([Raise(limit)]), ["Raft elects a leader."])
+    limited = sse_events(send(api, thread["id"], "Explain Raft").text)
+    assert limited[0][0] == "limit"
+    assert datetime.fromisoformat(limited[0][1]["reset_at"]) == datetime.fromisoformat(reset)
+    resent = sse_events(send(api, thread["id"], "Explain Raft").text)
+    assert resent[-1][0] == "done"
+    messages = api.get(f"/api/tutor/threads/{thread['id']}/messages").json()
+    assert [(m["role"], m["content"]) for m in messages] == [
+        ("user", "Explain Raft"),
+        ("assistant", "Raft elects a leader."),
+    ]

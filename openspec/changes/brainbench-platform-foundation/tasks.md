@@ -77,7 +77,7 @@
 - [x] 9.2 Tutor streaming path: Strands adapter deltas forwarded through the agent callback to the API's SSE generator; abort on stop; `limit` event from `ModelThrottledException` with reset time
 - [x] 9.3 API: `GET/POST /tutor/threads?context=`, `GET /tutor/threads/{id}/messages`, `POST /tutor/threads/{id}/messages` as an SSE stream (`delta`, `citation`, `related_topic`, `done`, `error`, `limit`), `POST /tutor/threads/{id}/stop` aborting the provider request and persisting the partial reply with `stopped`; single in-flight semaphore; usage recorded; related topics by embedding similarity against plan topics
 - [x] 9.4 Web: persistent tutor `Drawer` in the app shell, context derived from the route (topic, plan, general) with a context chip, thread list and new-thread action, streamed markdown rendering with citation chips linking to source locations, related-topic links, stop button, no-provider and limit-reached states
-- [ ] 9.5 Tests: grounded answer carries citations from fixture chunks; material-gap preface when retrieval is empty; stop persists partial text with `stopped`; thread per context restored; no-provider rejection
+- [x] 9.5 Tests: grounded answer carries citations from fixture chunks; material-gap preface when retrieval is empty; stop persists partial text with `stopped`; thread per context restored; no-provider rejection
 
 ## 10. End-to-end verification and docs
 

@@ -102,3 +102,9 @@ providers-integration:
 ingest-integration:
     mkdir -p "${BRAINBENCH_DATA:-$PWD/data}"
     BRAINBENCH_DATA="${BRAINBENCH_DATA:-$PWD/data}" uv run pytest -m integration apps/api/tests/integration/test_ingest_search.py
+
+# Section 9: tutor reply on Postgres (pgvector retrieval, real embeddings) against DATABASE_URL.
+tutor-integration:
+    test -n "${DATABASE_URL:-}" || { echo "set DATABASE_URL to a Postgres database" >&2; exit 1; }
+    mkdir -p "${BRAINBENCH_DATA:-$PWD/data}"
+    BRAINBENCH_DATA="${BRAINBENCH_DATA:-$PWD/data}" uv run pytest -m integration apps/api/tests/integration/test_tutor_postgres.py -q
