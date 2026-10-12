@@ -3,6 +3,7 @@ from pathlib import Path
 
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
+from strands import Agent
 from strands.types.exceptions import ModelThrottledException
 
 from app.jobs.errors import ProviderLimitReached
@@ -13,6 +14,7 @@ from app.services.providers import (
     ProviderRuntime,
     VaultLockedError,
     ensure_provider_for,
+    find_throttle,
     get_registry,
     model_for,
     provider_limit_from,
@@ -24,6 +26,7 @@ from brainbench_providers.registry import Registry
 from brainbench_providers.strands_models import (
     AnthropicOAuthModel,
     CodexOAuthModel,
+    ProviderRetryStrategy,
     ProviderThrottledException,
 )
 from brainbench_providers.testing import FakeProviders
@@ -185,3 +188,20 @@ async def test_sign_out_revokes_where_supported_and_deletes(
     await runtime.delete_account(stored.id)
     assert refresh in fake.revoked
     assert await runtime.store.list_credentials() == []
+
+
+async def test_agent_level_throttle_converts_to_a_deferral(
+    session: AsyncSession, runtime: ProviderRuntime, fake: FakeProviders
+) -> None:
+    await connect(runtime, fake, "anthropic")
+    reset = datetime.now(UTC) + timedelta(hours=3)
+    handle = await runtime.pool.lease("anthropic")
+    await handle.rate_limited("5h", reset)
+    model = await model_for(session, "curation", runtime)
+    agent = Agent(model=model, retry_strategy=ProviderRetryStrategy(), callback_handler=None)
+    with pytest.raises(Exception) as info:
+        await agent.invoke_async("Extract topics.")
+    assert find_throttle(info.value) is not None
+    limit = provider_limit_from(info.value)
+    assert limit.reset_at is not None and abs((limit.reset_at - reset).total_seconds()) < 1
+    assert find_throttle(ValueError("x")) is None

@@ -578,10 +578,25 @@ async def model_for(
     )
 
 
-def provider_limit_from(exc: ModelThrottledException) -> ProviderLimitReached:
-    """Job-layer conversion: a provider throttle becomes a deferral until its reset."""
-    reset_at = getattr(exc, "reset_at", None)
-    scope = getattr(exc, "scope", None)
+def find_throttle(exc: BaseException) -> ModelThrottledException | None:
+    """The provider throttle behind ``exc``, if any. A Strands ``Agent`` re-raises model errors
+    wrapped in ``EventLoopException`` (``original_exception``), so the chain is walked."""
+    seen: set[int] = set()
+    current: BaseException | None = exc
+    while current is not None and id(current) not in seen:
+        if isinstance(current, ModelThrottledException):
+            return current
+        seen.add(id(current))
+        current = getattr(current, "original_exception", None) or current.__cause__
+    return None
+
+
+def provider_limit_from(exc: BaseException) -> ProviderLimitReached:
+    """Job-layer conversion: a provider throttle (bare, or wrapped by the Strands agent loop)
+    becomes a deferral until its reset; ``reset_at`` is None when the provider gave none."""
+    throttle = find_throttle(exc)
+    reset_at = getattr(throttle, "reset_at", None)
+    scope = getattr(throttle, "scope", None)
     message = "waiting for provider limit reset"
     if scope:
         message = f"{message} ({scope})"
