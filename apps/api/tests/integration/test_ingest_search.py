@@ -46,11 +46,14 @@ async def pg_factory() -> AsyncIterator[async_sessionmaker[AsyncSession]]:
         await connection.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))
         await connection.execute(text(f'CREATE SCHEMA "{schema}"'))
     # NullPool: the TestClient runs the app on its own event loop, and asyncpg connections are
-    # bound to the loop that opened them.
+    # bound to the loop that opened them. The translate map puts every table in the test schema
+    # even when a migrated database already has them in public; public stays on the search path
+    # for the vector type and its operators.
     engine = create_async_engine(
         url,
         poolclass=NullPool,
         connect_args={"server_settings": {"search_path": f"{schema},public"}},
+        execution_options={"schema_translate_map": {None: schema}},
     )
     async with engine.begin() as connection:
         await connection.run_sync(Base.metadata.create_all)
