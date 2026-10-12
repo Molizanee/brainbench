@@ -45,7 +45,7 @@
 ## 6. Curriculum curation
 
 - [x] 6.1 Define Pydantic output models, system prompts, Strands `Agent` factories, and `@tool` functions (`search_chunks`, `get_profile`, `get_sessions`) in `packages/agents` for `topic_extraction`, `topic_merge`, `scoring`, `prerequisites`; an `AfterInvocationEvent` hook records usage
-- [ ] 6.2 Worker `curation` job: preconditions (ready sources, at least one target), windowed topic extraction via `agent.structured_output` with chunk citations, embedding-based dedupe plus merge call, then deterministic reconcile against existing topics (normalized title or cosine ≥ 0.85) reusing `topic_id` and creating `topic_revisions` only on content change; step outputs checkpointed for deferral resume
+- [x] 6.2 Worker `curation` job: preconditions (ready sources, at least one target), windowed topic extraction via `agent.structured_output` with chunk citations, embedding-based dedupe plus merge call, then deterministic reconcile against existing topics (normalized title or cosine ≥ 0.85) reusing `topic_id` and creating `topic_revisions` only on content change; step outputs checkpointed for deferral resume
 - [ ] 6.3 Scoring step with profile and session history injected; threshold filter (default 0.4); excluded list with rationale
 - [ ] 6.4 Prerequisite step, cycle breaking by lowest confidence with run log entry
 - [ ] 6.5 Deterministic planner: topological order, tie-break by target priority then relevance, weekly blocks within the time budget, oversized topics alone in a block spanning `ceil(estimate / budget)` weeks flagged `exceeds_weekly_budget`, mastered topics moved after unmastered unless prerequisite; immutable `study_plans` versions referencing `(topic_id, topic_revision_id)`
