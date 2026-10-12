@@ -230,3 +230,14 @@ def test_routing_validation_errors(api: TestClient) -> None:
     assert response.json()["detail"]["code"] == "invalid-routing"
     bad_class = {"routing": {"painting": {"provider": "anthropic", "model": "claude-opus-5-5"}}}
     assert api.put("/api/settings/providers", json=bad_class).status_code == 422
+
+
+def test_patch_changes_only_the_given_fields(api: TestClient, fake: FakeProviders) -> None:
+    connect(api, fake)
+    route = {"tutoring": {"provider": "anthropic", "model": "claude-haiku-5-5"}}
+    assert api.patch("/api/settings/providers", json={"routing": route}).status_code == 200
+    body = api.patch("/api/settings/providers", json={"enabled_providers": ["openai-codex"]}).json()
+    assert body["enabled_providers"] == ["openai-codex"]
+    assert body["routing"] == {}  # the stored anthropic route is ignored while disabled
+    body = api.patch("/api/settings/providers", json={"enabled_providers": None}).json()
+    assert body["enabled_providers"] is None and body["routing"] == route

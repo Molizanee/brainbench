@@ -23,6 +23,7 @@ from app.services.providers import (
     ProviderRuntime,
     VaultStatus,
     get_provider_runtime,
+    patch_provider_settings,
     provider_errors,
     provider_settings,
     update_provider_settings,
@@ -119,3 +120,13 @@ async def put_provider_settings(
     runtime: ProviderRuntime = Depends(get_provider_runtime),
 ) -> ProviderSettingsRead:
     return await update_provider_settings(session, runtime, body)
+
+
+@router.patch("/api/settings/providers", response_model=ProviderSettingsRead)
+async def patch_provider_settings_route(
+    body: ProviderSettingsUpdate,
+    session: AsyncSession = Depends(get_session),
+    runtime: ProviderRuntime = Depends(get_provider_runtime),
+) -> ProviderSettingsRead:
+    """Partial update: only ``enabled_providers`` and/or ``routing`` present in the body."""
+    return await patch_provider_settings(session, runtime, body)

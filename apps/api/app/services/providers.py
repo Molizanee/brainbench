@@ -8,7 +8,7 @@ holds what must outlive a request: the registry, the store, and the cached vault
 import asyncio
 import contextlib
 import logging
-from collections.abc import AsyncIterator, Callable, Iterator
+from collections.abc import AsyncIterator, Callable, Iterable, Iterator
 from contextlib import asynccontextmanager, contextmanager
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, time
@@ -632,18 +632,19 @@ async def provider_settings(
     )
 
 
-async def update_provider_settings(
-    session: AsyncSession, runtime: ProviderRuntime, body: ProviderSettingsUpdate
-) -> ProviderSettingsRead:
-    """Replace the enabled providers and the routing (validated against the registry)."""
-    if body.enabled_providers is not None:
-        unknown = [p for p in body.enabled_providers if p not in runtime.registry.ids]
-        if unknown:
-            raise InvalidRouting(f"Unknown providers: {', '.join(unknown)}")
-    enabled = (
-        None if body.enabled_providers is None else list(dict.fromkeys(body.enabled_providers))
-    )
-    for task_class, entry in body.routing.items():
+def _validated_enabled(runtime: ProviderRuntime, ids: list[str] | None) -> list[str] | None:
+    if ids is None:
+        return None
+    unknown = [p for p in ids if p not in runtime.registry.ids]
+    if unknown:
+        raise InvalidRouting(f"Unknown providers: {', '.join(unknown)}")
+    return list(dict.fromkeys(ids))
+
+
+def _validate_routing(
+    runtime: ProviderRuntime, routing: Iterable[tuple[str, RouteEntry]], enabled: list[str] | None
+) -> None:
+    for task_class, entry in routing:
         if entry.provider not in runtime.registry.ids:
             raise InvalidRouting(f"{task_class}: unknown provider {entry.provider!r}")
         spec = runtime.registry.get(entry.provider)
@@ -651,9 +652,34 @@ async def update_provider_settings(
             raise InvalidRouting(f"{task_class}: {spec.name} is disabled")
         if entry.model not in {m.id for m in spec.models}:
             raise InvalidRouting(f"{task_class}: {spec.name} has no model {entry.model!r}")
+
+
+async def update_provider_settings(
+    session: AsyncSession, runtime: ProviderRuntime, body: ProviderSettingsUpdate
+) -> ProviderSettingsRead:
+    """PUT: replace the enabled providers and the routing (validated against the registry)."""
+    enabled = _validated_enabled(runtime, body.enabled_providers)
+    _validate_routing(runtime, body.routing.items(), enabled)
     row = await load_instance_settings(session)
     row.enabled_providers = enabled
     row.provider_routing = {k: v.model_dump() for k, v in body.routing.items()}
     await session.commit()
-    log.info("provider settings updated (enabled=%s)", enabled)
+    log.info("provider settings replaced (enabled=%s)", enabled)
+    return await provider_settings(session, runtime)
+
+
+async def patch_provider_settings(
+    session: AsyncSession, runtime: ProviderRuntime, body: ProviderSettingsUpdate
+) -> ProviderSettingsRead:
+    """PATCH: change only the fields present in the body. Routes that point at a provider
+    being disabled stay stored and are ignored until it is re-enabled."""
+    row = await load_instance_settings(session)
+    if "enabled_providers" in body.model_fields_set:
+        row.enabled_providers = _validated_enabled(runtime, body.enabled_providers)
+    if "routing" in body.model_fields_set:
+        enabled = None if row.enabled_providers is None else list(row.enabled_providers)
+        _validate_routing(runtime, body.routing.items(), enabled)
+        row.provider_routing = {k: v.model_dump() for k, v in body.routing.items()}
+    await session.commit()
+    log.info("provider settings updated (%s)", ", ".join(sorted(body.model_fields_set)))
     return await provider_settings(session, runtime)
