@@ -218,6 +218,30 @@ async def test_loopback_callback_completes_then_late_callback_is_ignored(
     await logins.close()
 
 
+async def test_duplicate_concurrent_callback_shows_connected_and_exchanges_once(
+    fake: FakeProviders, persisted: Persisted, clock: Clock
+) -> None:
+    port = free_port()
+    logins = manager(
+        fake,
+        persisted,
+        clock,
+        callbacks_enabled=True,
+        callback_host="127.0.0.1",
+        port_overrides={54545: port},
+    )
+    view = await logins.start(ANTHROPIC)
+    redirect = fake.authorize(view.authorize_url or "")
+    local = redirect.replace("localhost:54545", f"127.0.0.1:{port}")
+    first, second = await asyncio.gather(http_get(local), http_get(local))
+    assert [first.status_code, second.status_code] == [200, 200]
+    assert "Connected" in first.text and "Connected" in second.text
+    assert logins.get(view.login_id).status == "connected"
+    assert len(persisted.calls) == 1
+    assert len(fake.calls("https://api.anthropic.com/v1/oauth/token")) == 1
+    await logins.close()
+
+
 async def test_paste_wins_closes_listener_and_late_callback_is_ignored(
     fake: FakeProviders, persisted: Persisted, clock: Clock
 ) -> None:
@@ -236,7 +260,8 @@ async def test_paste_wins_closes_listener_and_late_callback_is_ignored(
     assert (await logins.complete(first.login_id, redirect)).status == "connected"
     local = redirect.replace("localhost:54545", f"127.0.0.1:{port}")
     late = await http_get(local)  # listener still serves the second login
-    assert late.status_code == 400 and "already" in late.text
+    assert late.status_code == 200 and "Connected" in late.text  # ignored: no second exchange
+    assert len(persisted.calls) == 1
     other = fake.authorize(second.authorize_url or "")
     assert (await logins.complete(second.login_id, other)).status == "connected"
     await asyncio.sleep(0.05)

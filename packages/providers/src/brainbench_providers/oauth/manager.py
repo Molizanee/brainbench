@@ -4,7 +4,9 @@ Pending logins live in memory with a 10-minute TTL. A code login always accepts 
 redirect; when callbacks are enabled it also registers its state with the loopback listener on
 the provider's callback port (one listener per port, shared by concurrent logins, closed when
 no pending login needs it). Whichever path completes first wins under the login's lock; the
-other is closed, and a late callback for a consumed state gets an "already used" page.
+other is closed, and a late callback for a consumed state exchanges nothing: it gets a
+"Connected" page when the login succeeded (a browser may send the redirect twice) and an
+"already used" page otherwise.
 A device login polls in a background task at the provider's interval until approval or expiry.
 """
 
@@ -143,6 +145,8 @@ class LoginManager:
         self._logins: dict[str, PendingLogin] = {}
         self._servers: dict[int, CallbackServer] = {}
         self._states: dict[int, dict[str, str]] = {}
+        # State -> login id of finished code logins, so a repeated callback can be answered.
+        self._settled_states: dict[str, str] = {}
 
     # --- public API -----------------------------------------------------------------------
 
@@ -191,6 +195,7 @@ class LoginManager:
             await server.close()
         self._servers.clear()
         self._states.clear()
+        self._settled_states.clear()
 
     def clear(self) -> None:
         """Forget every pending login (vault reset)."""
@@ -198,6 +203,7 @@ class LoginManager:
             if pending.status == "pending":
                 self._expire(pending)
         self._logins.clear()
+        self._settled_states.clear()
 
     # --- code logins --------------------------------------------------------------------------
 
@@ -222,8 +228,14 @@ class LoginManager:
         return True
 
     async def _on_callback(self, port: int, params: dict[str, str]) -> tuple[int, str]:
-        login_id = self._states.get(port, {}).get(params.get("state", ""))
+        state = params.get("state", "")
+        login_id = self._states.get(port, {}).get(state) or self._settled_states.get(state)
         pending = self._logins.get(login_id) if login_id else None
+        if pending is not None and pending.status == "connected":
+            # Already signed in (by this callback sent twice, or by the paste path): ignored, but
+            # the engineer is told the truth rather than that the sign-in failed.
+            log.info("ignored OAuth callback for a completed login on port %d", port)
+            return 200, page("Connected", "You can close this tab and return to BrainBench.")
         if pending is None or pending.status != "pending":
             log.info("ignored OAuth callback for an unknown or consumed state on port %d", port)
             return 400, page(
@@ -240,6 +252,11 @@ class LoginManager:
         try:
             await self._finish_code(pending, code, params.get("state"), source="callback")
         except LoginAlreadyFinished:
+            # The same redirect sent twice at once: the request that lost the race exchanges
+            # nothing and reports the outcome of the one that won (set while this one awaited).
+            outcome: LoginStatus = pending.status
+            if outcome == "connected":
+                return 200, page("Connected", "You can close this tab and return to BrainBench.")
             return 400, page("Sign-in link already used", "This sign-in was already completed.")
         except ProviderError as exc:
             return 400, page("Sign-in failed", exc.message)
@@ -327,6 +344,7 @@ class LoginManager:
             port = self._ports.get(pending.callback_port, pending.callback_port)
             states = self._states.get(port, {})
             states.pop(pending.state, None)
+            self._settled_states[pending.state] = pending.id
             if not states and port in self._servers:
                 server = self._servers.pop(port)
                 self._states.pop(port, None)
@@ -352,3 +370,5 @@ class LoginManager:
                 self._expire(pending)
             if pending.finished_at is not None and pending.finished_at < cutoff:
                 del self._logins[login_id]
+                if pending.state is not None:
+                    self._settled_states.pop(pending.state, None)
