@@ -23,11 +23,13 @@ from app.db.schema import (
     CurationRun,
     Job,
     Source,
+    StudyPlan,
     StudySession,
     TargetSkill,
     Topic,
     TopicRevision,
 )
+from app.models.curation import CurationRunCreate, CurationRunRead, ModelUsed
 from app.services import jobs as job_service
 
 # Module import: app.services.providers imports app.jobs, which imports the curation handler.
@@ -43,6 +45,7 @@ from app.services.topics import (
     add_revision,
     cite_chunks,
     create_topic,
+    current_revision,
     normalize_title,
     resolve_topic,
 )
@@ -351,33 +354,51 @@ class ReconciledTopic:
 
 @dataclass
 class _Existing:
+    """One revision of an existing topic, keyed to the topic it resolves to."""
+
     topic_id: uuid.UUID
     title_key: str
     embedding: list[float] | None
+    current: bool
 
 
 async def _existing_topics(session: AsyncSession) -> list[_Existing]:
-    """Every topic's latest revision, keyed to the topic it resolves to (merges followed)."""
+    """Every revision of every topic, current revisions first (merges followed)."""
     rows = await session.execute(
         select(Topic, TopicRevision)
         .join(TopicRevision, TopicRevision.topic_id == Topic.id)
         .order_by(Topic.created_at, Topic.id, TopicRevision.revision.desc())
     )
-    seen: set[uuid.UUID] = set()
+    resolved: dict[uuid.UUID, uuid.UUID | None] = {}
     out: list[_Existing] = []
     for topic, revision in rows:
-        if topic.id in seen:
+        current = topic.id not in resolved
+        if current:
+            target: uuid.UUID | None = topic.id
+            if topic.merged_into is not None:
+                try:
+                    target = (await resolve_topic(session, topic.id)).id
+                except DomainError:
+                    target = None
+            resolved[topic.id] = target
+        target_id = resolved[topic.id]
+        if target_id is None:
             continue
-        seen.add(topic.id)
-        target = topic.id
-        if topic.merged_into is not None:
-            try:
-                target = (await resolve_topic(session, topic.id)).id
-            except DomainError:
-                continue
         embedding = None if revision.embedding is None else [float(x) for x in revision.embedding]
-        out.append(_Existing(target, normalize_title(revision.title), embedding))
+        out.append(_Existing(target_id, normalize_title(revision.title), embedding, current))
+    out.sort(key=lambda e: not e.current)
     return out
+
+
+def _match(
+    existing: Sequence[_Existing], key: str, vector: Sequence[float], similarity: float
+) -> uuid.UUID | None:
+    by_title = next((e.topic_id for e in existing if e.title_key == key), None)
+    if by_title is not None:
+        return by_title
+    scored = [(cosine(vector, e.embedding), e.topic_id) for e in existing if e.embedding]
+    best = max(scored, default=None, key=lambda pair: pair[0])
+    return best[1] if best is not None and best[0] >= similarity else None
 
 
 async def reconcile(
@@ -390,28 +411,20 @@ async def reconcile(
 ) -> list[ReconciledTopic]:
     """Match candidates to existing topics, reuse their ids, and revise only changed content.
 
-    A candidate matches a topic whose current title normalizes to the same text, else the topic
-    whose current revision embedding has the highest cosine at or above ``similarity``. A match
-    records a new revision only when the summary or the normalized title differs; no match
-    creates a topic.
-    Chunk citations are unioned into ``topic_chunks``. Two candidates matching one topic are
-    folded into the first. Flushes; the caller commits.
+    A candidate matches the topic with a revision whose title normalizes to the same text
+    (current revisions first, so a topic the engineer renamed is still found by its old
+    title), else the topic with the revision embedding of highest cosine at or above
+    ``similarity``. A match records a new revision only when the summary or the normalized
+    title differs, and never over a revision the engineer wrote (``created_by="edit"``); no match
+    creates a topic. Chunk citations are unioned into ``topic_chunks``. Two candidates matching
+    one topic are folded into the first. Flushes; the caller commits.
     """
     existing = await _existing_topics(session)
     claimed: dict[uuid.UUID, ReconciledTopic] = {}
     out: list[ReconciledTopic] = []
     for candidate, vector in zip(candidates, vectors, strict=True):
         key = normalize_title(candidate.title)
-        match = next((e.topic_id for e in existing if e.title_key == key), None)
-        if match is None:
-            scored = [
-                (cosine(vector, e.embedding), e.topic_id)
-                for e in existing
-                if e.embedding is not None
-            ]
-            best = max(scored, default=None, key=lambda pair: pair[0])
-            if best is not None and best[0] >= similarity:
-                match = best[1]
+        match = _match(existing, key, vector, similarity)
         chunk_ids = {uuid.UUID(c) for c in candidate.chunk_ids}
         if match is not None and match in claimed:
             await cite_chunks(session, match, chunk_ids)
@@ -425,38 +438,35 @@ async def reconcile(
                 curation_run_id=run_id,
                 embedding=vector,
             )
-            existing.append(_Existing(topic.id, key, vector))
+            existing.append(_Existing(topic.id, key, vector, True))
             result = ReconciledTopic(
                 topic.id, revision.id, revision.title, revision.summary, True, False
             )
         else:
-            before = await session.scalar(
-                select(TopicRevision.id)
-                .where(TopicRevision.topic_id == match)
-                .order_by(TopicRevision.revision.desc())
-                .limit(1)
-            )
-            current = await session.get(TopicRevision, before)
-            # A title that only differs in case, punctuation or spacing is not a change.
-            title = (
-                current.title
-                if current is not None and normalize_title(current.title) == key
-                else candidate.title
-            )
-            revision = await add_revision(
-                session,
-                match,
-                title=title,
-                summary=candidate.summary,
-                created_by="run",
-                curation_run_id=run_id,
-                embedding=vector,
-            )
+            current = await current_revision(session, match)
+            revision = current
+            if current.created_by != "edit":
+                # A title that only differs in case, punctuation or spacing is not a change.
+                same_title = normalize_title(current.title) == key
+                revision = await add_revision(
+                    session,
+                    match,
+                    title=current.title if same_title else candidate.title,
+                    summary=candidate.summary,
+                    created_by="run",
+                    curation_run_id=run_id,
+                    embedding=vector,
+                )
             topic_row = await session.get(Topic, match)
             if topic_row is not None:
                 topic_row.orphaned_at = None
             result = ReconciledTopic(
-                match, revision.id, revision.title, revision.summary, False, revision.id != before
+                match,
+                revision.id,
+                revision.title,
+                revision.summary,
+                False,
+                revision.id != current.id,
             )
         await cite_chunks(session, result.topic_id, chunk_ids)
         claimed[result.topic_id] = result
@@ -587,3 +597,49 @@ def apply_score(
         already_held=score.already_held,
         estimate_minutes=score.estimate_minutes,
     )
+
+
+# --- HTTP-facing --------------------------------------------------------------------------
+
+
+async def read_run(session: AsyncSession, run: CurationRun) -> CurationRunRead:
+    job = await session.get(Job, run.job_id) if run.job_id else None
+    plan_version = await session.scalar(
+        select(StudyPlan.version).where(
+            StudyPlan.curation_run_id == run.id, StudyPlan.created_by == "run"
+        )
+    )
+    await session.refresh(run, ["created_at"])
+    return CurationRunRead(
+        id=run.id,
+        job_id=run.job_id,
+        status=job.status if job else None,
+        progress=job.progress if job else None,
+        error=job.error if job else None,
+        profile_version=run.profile_version,
+        source_ids=[uuid.UUID(s) for s in run.source_ids],
+        threshold=run.threshold,
+        models={k: ModelUsed.model_validate(v) for k, v in (run.models or {}).items()},
+        step_log=list(run.step_log or []),
+        plan_version=plan_version,
+        created_at=run.created_at,
+        finished_at=run.finished_at,
+    )
+
+
+class CurationService:
+    """Start and list curation runs (commits)."""
+
+    def __init__(self, session: AsyncSession) -> None:
+        self.session = session
+
+    async def start(self, body: CurationRunCreate) -> CurationRunRead:
+        run, _ = await start_run(self.session, threshold=body.threshold)
+        await self.session.commit()
+        return await read_run(self.session, run)
+
+    async def list_runs(self, *, limit: int = 20) -> list[CurationRunRead]:
+        rows = await self.session.scalars(
+            select(CurationRun).order_by(CurationRun.created_at.desc(), CurationRun.id).limit(limit)
+        )
+        return [await read_run(self.session, run) for run in list(rows)]

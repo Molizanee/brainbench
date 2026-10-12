@@ -11,6 +11,7 @@ from app.services.planner import (
     order_topics,
     pack_weeks,
     plan_topics,
+    stable_order,
 )
 
 
@@ -202,3 +203,10 @@ def test_insert_position_respects_prerequisites_then_tie_break() -> None:
 
     assert at == 2  # after a; before c (lower relevance); d requires it anyway
     assert first == 0 and last == 4
+
+
+def test_stable_order_keeps_a_valid_order_and_minimally_fixes_an_invalid_one() -> None:
+    edges = [Edge("c", "a")]
+
+    assert stable_order(["b", "a", "c"], edges) == ["b", "a", "c"]
+    assert stable_order(["c", "b", "a"], edges) == ["b", "a", "c"]

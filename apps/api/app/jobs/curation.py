@@ -35,9 +35,9 @@ from app.jobs.registry import JobContext, register
 # names are looked up at call time (either module may be the one importing first).
 from app.services import curation as service
 from app.services import embeddings, providers
+from app.services import plans as plan_service
 from app.services import search as search_service
 from app.services.planner import Edge, break_cycles
-from app.services.plans import RunTopic, write_run_plan
 from app.services.profile import get_profile, list_target_skills
 from app.services.progress import mastered_topic_ids, session_history
 
@@ -208,11 +208,11 @@ class CurationJob:
         edges = await self._prerequisites(kept)
         await self.ctx.progress("building the study plan")
         self.ctx.raise_if_cancelled()
-        plan = await write_run_plan(
+        plan = await plan_service.write_run_plan(
             self.session,
             run,
             [
-                RunTopic(
+                plan_service.RunTopic(
                     topic_id=t.topic_id,
                     revision_id=t.revision_id,
                     title=t.title,

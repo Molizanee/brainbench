@@ -275,3 +275,26 @@ def insert_position(
         if key_of(order[index]) > mine:
             return index
     return upper
+
+
+def stable_order(order: Sequence[str], edges: Sequence[Edge]) -> list[str]:
+    """The valid order closest to ``order``: unchanged when it already satisfies ``edges``,
+    otherwise each topic waits only until its prerequisites are placed."""
+    rank = {key: i for i, key in enumerate(order)}
+    acyclic, _ = break_cycles(set(rank), list(edges))
+    requires = _requirements(acyclic)
+    dependents: dict[str, list[str]] = {}
+    for edge in acyclic:
+        dependents.setdefault(edge.requires, []).append(edge.topic)
+    waiting = {key: len(requires.get(key, ())) for key in rank}
+    ready = [(rank[k], k) for k, n in waiting.items() if n == 0]
+    heapq.heapify(ready)
+    out: list[str] = []
+    while ready:
+        _, key = heapq.heappop(ready)
+        out.append(key)
+        for dependent in dependents.get(key, ()):
+            waiting[dependent] -= 1
+            if waiting[dependent] == 0:
+                heapq.heappush(ready, (rank[dependent], dependent))
+    return out

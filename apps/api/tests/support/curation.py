@@ -14,8 +14,8 @@ from typing import Any
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.db.schema import Chunk, CurrentSkill, Profile, Source, TargetSkill
-from app.jobs.registry import JobContext
+from app.db.schema import Chunk, CurationRun, CurrentSkill, Profile, Source, TargetSkill
+from app.jobs.registry import HANDLERS, JobContext
 from app.services import curation as curation_service
 from app.services import embeddings
 from app.services.curation import RoutedModel
@@ -275,3 +275,14 @@ def install_script(monkeypatch: pytest.MonkeyPatch, script: Script) -> ScriptedM
 
     monkeypatch.setattr(curation_service, "routed_model", routed)
     return model
+
+
+async def curate(session: AsyncSession, *, threshold: float = 0.4) -> uuid.UUID:
+    """Run the curation handler once (the script must be installed) and commit; returns the
+    run id."""
+    run = CurationRun(profile_version=0, source_ids=[], threshold=threshold)
+    session.add(run)
+    await session.commit()
+    await HANDLERS["curation"](make_ctx(session, run.id))
+    await session.commit()
+    return run.id
