@@ -51,8 +51,30 @@ test-web:
 build:
     docker compose build
 
+python_image := env("PYTHON_VERSION", "3.14-slim")
+
 # Image-level checks that need Docker.
-smoke: smoke-manim
+smoke: image-smoke smoke-manim
+
+# Interpreter compatibility gate: build the app image, import both entrypoints, run the unit
+# suite inside it (default and eager imports).
+image-smoke:
+    docker build -f infra/Dockerfile.app --target runtime --build-arg PYTHON_VERSION={{python_image}} -t brainbench-app:smoke .
+    docker run --rm brainbench-app:smoke python -c "import app.main, app.worker"
+    docker build -f infra/Dockerfile.app --target test --build-arg PYTHON_VERSION={{python_image}} -t brainbench-app:test .
+    docker run --rm brainbench-app:test pytest -q
+    docker run --rm -e BRAINBENCH_EAGER_IMPORTS=1 brainbench-app:test pytest -q
+
+# Against DATABASE_URL: upgrade, no drift between ORM and migrations, full downgrade, upgrade.
+migrations-check: check-schema-rev
+    cd apps/api && uv run alembic upgrade head
+    cd apps/api && uv run alembic check
+    cd apps/api && uv run alembic downgrade base
+    cd apps/api && uv run alembic upgrade head
+
+# infra/schema.rev must name the single Alembic head.
+check-schema-rev:
+    test "$(cd apps/api && uv run alembic heads | awk '{print $1}')" = "$(cat infra/schema.rev)"
 
 # Build the Manim sandbox and render the two-section fixture with the sandbox flags.
 smoke-manim:

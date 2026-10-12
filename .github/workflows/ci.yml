@@ -34,6 +34,41 @@ jobs:
       - run: uv sync --frozen
       - run: just test-py-eager
 
+  migrations:
+    runs-on: ubuntu-latest
+    services:
+      db:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_USER: brainbench
+          POSTGRES_PASSWORD: brainbench
+          POSTGRES_DB: brainbench
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U brainbench" --health-interval 2s --health-retries 30
+    env:
+      DATABASE_URL: postgresql+asyncpg://brainbench:brainbench@localhost:5432/brainbench
+    steps:
+      - uses: actions/checkout@v5
+      - uses: astral-sh/setup-uv@v6
+      - uses: extractions/setup-just@v2
+      - run: uv sync --frozen
+      - run: just migrations-check
+
+  # Interpreter compatibility gate (BACKEND_GOOD_PRACTICES.md §6): a wheel can resolve and
+  # still fail to import, so the suite runs inside the built image.
+  app-image:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python: ["3.14-slim"]
+    env:
+      PYTHON_VERSION: ${{ matrix.python }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: extractions/setup-just@v2
+      - run: just image-smoke
+
   web:
     runs-on: ubuntu-latest
     steps:
