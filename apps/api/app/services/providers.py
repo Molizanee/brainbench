@@ -5,15 +5,18 @@ vault key file (``vault_key``), and instance settings. One :class:`ProviderRunti
 holds what must outlive a request: the registry, the store, and the cached vault cipher.
 """
 
+import asyncio
+import contextlib
 import logging
-from collections.abc import Callable, Iterator
-from contextlib import contextmanager
+from collections.abc import AsyncIterator, Callable, Iterator
+from contextlib import asynccontextmanager, contextmanager
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from functools import cache
 from pathlib import Path
 from uuid import UUID
 
+from fastapi import FastAPI
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
@@ -32,7 +35,9 @@ from app.services.vault_key import (
 from brainbench_providers.errors import ProviderError, VaultLocked
 from brainbench_providers.oauth.manager import LoginManager, LoginView
 from brainbench_providers.oauth.tokens import HttpFactory, TokenSet, default_http
+from brainbench_providers.refresher import SWEEP_INTERVAL_S, Refresher
 from brainbench_providers.registry import ProviderSpec, Registry, load_registry
+from brainbench_providers.select import AccountPool
 from brainbench_providers.vault import Identity, VaultCipher, identity_key, seal_tokens
 
 log = logging.getLogger(__name__)
@@ -113,8 +118,11 @@ class ProviderRuntime:
     callbacks_enabled: bool = False
     callback_host: str = "0.0.0.0"
     callback_port_overrides: dict[int, int] = field(default_factory=dict)
+    refresh_interval_s: float = SWEEP_INTERVAL_S
     store: SqlProviderStore = field(init=False)
     logins: LoginManager = field(init=False)
+    refresher: Refresher = field(init=False)
+    pool: AccountPool = field(init=False)
     _cipher: tuple[str, VaultCipher] | None = field(default=None, init=False, repr=False)
 
     def __post_init__(self) -> None:
@@ -126,6 +134,17 @@ class ProviderRuntime:
             callback_host=self.callback_host,
             clock=self.clock,
             port_overrides=self.callback_port_overrides,
+        )
+        self.refresher = Refresher(
+            registry=self.registry,
+            store=self.store,
+            cipher=self.cipher,
+            http=self.http,
+            clock=self.clock,
+            interval_s=self.refresh_interval_s,
+        )
+        self.pool = AccountPool(
+            store=self.store, cipher=self.cipher, refresher=self.refresher, clock=self.clock
         )
 
     async def enabled_ids(self) -> list[str] | None:
@@ -243,3 +262,28 @@ def get_provider_runtime() -> ProviderRuntime:
             callback_host=settings.brainbench_oauth_callback_host,
         )
     return _runtime
+
+
+@asynccontextmanager
+async def start_refresher(
+    app: FastAPI, runtime: ProviderRuntime | None = None
+) -> AsyncIterator[ProviderRuntime]:
+    """Run the provider background work for the API process's lifetime.
+
+    The refresher sweeps every 60 s (token refresh, then usage windows); on exit it stops and
+    closes pending logins and their callback listeners. ``app/main.py``'s lifespan wraps its
+    ``yield`` in ``async with start_refresher(app):``. A runtime set through
+    ``app.dependency_overrides`` (tests) is used when ``runtime`` is not given.
+    """
+    if runtime is None:
+        runtime = app.dependency_overrides.get(get_provider_runtime, get_provider_runtime)()
+    task = asyncio.create_task(runtime.refresher.run_forever(), name="provider-refresher")
+    log.info("provider refresher started (every %.0f s)", runtime.refresher.interval_s)
+    try:
+        yield runtime
+    finally:
+        task.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await task
+        await runtime.logins.close()
+        log.info("provider refresher stopped")
