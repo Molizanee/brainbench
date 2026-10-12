@@ -10,7 +10,7 @@
 ## 2. Job orchestration
 
 - [x] 2.1 Implement `jobs` claim loop with `FOR UPDATE SKIP LOCKED`, per-instance and per-type concurrency limits, heartbeat, and reaper that requeues jobs with stale heartbeat
-- [ ] 2.2 Implement retry policy (exponential backoff from 30 s, 3 attempts), `PermanentJobError`, and `ProviderLimitReached(reset_at)` as a distinct deferral outcome: save handler checkpoint to `jobs.checkpoint`, status `queued`, `run_after = reset_at + jitter` (or +5 min without reset), attempt count unchanged, progress message set; handlers resume from checkpoint
+- [x] 2.2 Implement retry policy (exponential backoff from 30 s, 3 attempts), `PermanentJobError`, and `ProviderLimitReached(reset_at)` as a distinct deferral outcome: save handler checkpoint to `jobs.checkpoint`, status `queued`, `run_after = reset_at + jitter` (or +5 min without reset), attempt count unchanged, progress message set; handlers resume from checkpoint
 - [ ] 2.3 Implement cancellation: status transition, cooperative cancel flag checked by job steps, and sandbox container kill for running renders
 - [ ] 2.4 Implement `job_events` with `LISTEN/NOTIFY` and an SSE endpoint `GET /events`; API endpoints `GET /jobs`, `GET /jobs/{id}`, `POST /jobs/{id}/cancel`
 - [ ] 2.5 Tests: worker restart requeues a running job; permanent error does not retry; per-type render limit holds while a non-render job starts; provider-limit deferral leaves attempt count unchanged, sets run-after from reset time, and a handler resumes from its checkpoint; three consecutive deferrals do not fail the job

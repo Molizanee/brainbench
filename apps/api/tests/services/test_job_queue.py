@@ -147,3 +147,58 @@ async def test_reaper_finishes_cancel_of_dead_job(session: AsyncSession) -> None
 def test_render_limits_follow_settings(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(settings, "render_concurrency", 2)
     assert job_queue.render_type_limits() == {"video": 2, "figure": 2}
+
+
+def test_retry_delay_doubles_from_30_seconds() -> None:
+    assert [job_queue.retry_delay(n).total_seconds() for n in (1, 2, 3)] == [30, 60, 120]
+
+
+@pytest.mark.parametrize("rand", [0.0, 0.5, 0.999])
+def test_deferral_with_reset_lands_within_60_seconds_after_it(rand: float) -> None:
+    reset = NOW + timedelta(minutes=17)
+    run_after = job_queue.deferral_run_after(NOW, reset, lambda: rand)
+    assert reset <= run_after <= reset + timedelta(seconds=60)
+    assert run_after == reset + timedelta(seconds=60 * rand)
+
+
+@pytest.mark.parametrize("rand", [0.0, 0.999])
+def test_deferral_without_reset_waits_5_to_6_minutes(rand: float) -> None:
+    run_after = job_queue.deferral_run_after(NOW, None, lambda: rand)
+    assert NOW + timedelta(minutes=5) <= run_after <= NOW + timedelta(minutes=6)
+
+
+def test_deferral_with_past_reset_counts_from_now() -> None:
+    run_after = job_queue.deferral_run_after(NOW, NOW - timedelta(hours=1), lambda: 0.5)
+    assert run_after == NOW + timedelta(seconds=30)
+
+
+async def test_transient_failure_requeues_with_backoff_and_next_attempt(
+    session: AsyncSession,
+) -> None:
+    await add(session)
+    job = await claim(session)
+    assert job is not None
+    await job_queue.fail_or_retry(session, job.id, "w1", NOW, error="timeout")
+    assert (job.status, job.attempt, job.error) == ("queued", 2, "timeout")
+    assert jobs.as_utc(job.run_after) == NOW + timedelta(seconds=30)
+    assert job.locked_by is None
+
+
+async def test_transient_failure_on_last_attempt_fails(session: AsyncSession) -> None:
+    await add(session)
+    job = await claim(session)
+    assert job is not None
+    job.attempt = 3
+    await job_queue.fail_or_retry(session, job.id, "w1", NOW, error="timeout")
+    assert (job.status, job.error_reason) == ("failed", "retries-exhausted")
+
+
+async def test_defer_keeps_attempt_and_saves_checkpoint(session: AsyncSession) -> None:
+    await add(session)
+    job = await claim(session)
+    assert job is not None
+    later = NOW + timedelta(minutes=10)
+    await job_queue.defer(session, job.id, "w1", run_after=later, checkpoint={"step": 2})
+    assert (job.status, job.attempt, job.checkpoint) == ("queued", 1, {"step": 2})
+    assert job.progress == "waiting for provider limit reset"
+    assert jobs.as_utc(job.run_after) == later

@@ -1,5 +1,6 @@
 import asyncio
 from collections.abc import AsyncIterator, Awaitable, Callable
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
 from uuid import UUID
@@ -11,10 +12,11 @@ from sqlalchemy.pool import NullPool
 
 from app.core.config import settings
 from app.db.schema import Base, InstanceSettings, Job, JobEvent
-from app.jobs.errors import JobSkipped
+from app.jobs.errors import JobSkipped, PermanentJobError, ProviderLimitReached
 from app.jobs.registry import HANDLERS, Handler, JobContext
 from app.jobs.runner import ActiveJob, Runner
 from app.services import jobs
+from app.services.jobs import utcnow
 
 type Factory = async_sessionmaker[AsyncSession]
 
@@ -191,3 +193,126 @@ def handler_raising(error: BaseException) -> Callable[[JobContext], Awaitable[No
         raise error
 
     return handler
+
+
+class Clock:
+    def __init__(self) -> None:
+        self.now = utcnow()
+
+    def __call__(self) -> datetime:
+        return self.now
+
+    def advance(self, until: datetime) -> None:
+        self.now = jobs.as_utc(until) + timedelta(seconds=1)
+
+
+async def run_attempts(
+    factory: Factory, tmp_path: Path, handler: Handler, runs: int, *, rand: float = 0.5
+) -> tuple[Job, list[tuple[datetime, Job]]]:
+    """Run the job ``runs`` times, advancing the clock past run-after between runs.
+
+    Returns the final job and, per run, the runner's clock at that run and the job after it.
+    """
+    job_id = await enqueue(factory)
+    clock = Clock()
+    runner = Runner(
+        factory,
+        worker_id="w1",
+        handlers={"t": handler},
+        gates={},
+        clock=clock,
+        rand=lambda: rand,
+        jobs_dir=tmp_path,
+    )
+    history: list[tuple[datetime, Job]] = []
+    for _ in range(runs):
+        ran_at = clock.now
+        await run_all(await runner.tick())
+        job = await load(factory, job_id)
+        history.append((ran_at, job))
+        clock.advance(job.run_after)
+    return history[-1][1], history
+
+
+async def test_transient_failure_retries_then_fails_after_three_attempts(
+    session_factory: Factory, tmp_path: Path
+) -> None:
+    job, history = await run_attempts(
+        session_factory, tmp_path, handler_raising(TimeoutError("provider call timed out")), 3
+    )
+    assert [(j.status, j.attempt) for _, j in history] == [
+        ("queued", 2),
+        ("queued", 3),
+        ("failed", 3),
+    ]
+    backoff = [(jobs.as_utc(j.run_after) - at).total_seconds() for at, j in history[:2]]
+    assert backoff == [30, 60]
+    assert (job.error_reason, job.error) == (
+        "retries-exhausted",
+        "TimeoutError: provider call timed out",
+    )
+
+
+async def test_permanent_error_is_not_retried(session_factory: Factory, tmp_path: Path) -> None:
+    error = PermanentJobError("render budget exhausted", reason="budget-exhausted")
+    job = await run_one(session_factory, tmp_path, handler_raising(error))
+    assert (job.status, job.error_reason, job.attempt) == ("failed", "budget-exhausted", 1)
+
+
+async def test_provider_limit_defers_without_spending_an_attempt_and_resumes(
+    session_factory: Factory, tmp_path: Path
+) -> None:
+    reset = utcnow() + timedelta(minutes=20)
+    seen: list[dict[str, Any]] = []
+
+    async def handler(ctx: JobContext) -> None:
+        seen.append(dict(ctx.checkpoint))
+        if not ctx.checkpoint:
+            await ctx.save_checkpoint({"storyboard": "done"})
+            raise ProviderLimitReached(reset_at=reset)
+        await ctx.save_checkpoint({**ctx.checkpoint, "script": "done"})
+
+    job, history = await run_attempts(session_factory, tmp_path, handler, 2, rand=0.5)
+    deferred = history[0][1]
+    assert (deferred.status, deferred.attempt) == ("queued", 1)
+    assert deferred.progress == "waiting for provider limit reset"
+    assert reset <= jobs.as_utc(deferred.run_after) <= reset + timedelta(seconds=60)
+    assert deferred.checkpoint == {"storyboard": "done"}
+    assert seen == [{}, {"storyboard": "done"}]
+    assert (job.status, job.attempt) == ("ready", 1)
+    assert job.checkpoint == {"storyboard": "done", "script": "done"}
+
+
+async def test_three_consecutive_deferrals_do_not_fail_the_job(
+    session_factory: Factory, tmp_path: Path
+) -> None:
+    resets: list[datetime] = []
+
+    async def handler(ctx: JobContext) -> None:
+        resets.append(utcnow() + timedelta(minutes=5 * (len(resets) + 1)))
+        raise ProviderLimitReached(reset_at=resets[-1])
+
+    job, history = await run_attempts(session_factory, tmp_path, handler, 3, rand=0.0)
+    assert [(j.status, j.attempt) for _, j in history] == [("queued", 1)] * 3
+    assert jobs.as_utc(job.run_after) >= resets[-1]
+    assert job.error_reason is None
+
+
+async def test_provider_limit_without_reset_waits_five_to_six_minutes(
+    session_factory: Factory, tmp_path: Path
+) -> None:
+    job_id = await enqueue(session_factory)
+    clock = Clock()
+    runner = Runner(
+        session_factory,
+        worker_id="w1",
+        handlers={"t": handler_raising(ProviderLimitReached())},
+        gates={},
+        clock=clock,
+        rand=lambda: 1.0,
+        jobs_dir=tmp_path,
+    )
+    await run_all(await runner.tick())
+    job = await load(session_factory, job_id)
+    wait = jobs.as_utc(job.run_after) - clock.now
+    assert timedelta(minutes=5) <= wait <= timedelta(minutes=6)
