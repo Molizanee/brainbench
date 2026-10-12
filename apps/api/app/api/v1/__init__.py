@@ -10,7 +10,18 @@ single ``router.include_router(...)`` line. ``app/main.py`` includes both router
 from fastapi import APIRouter, Depends
 
 from app.api.deps import require_session
-from app.api.v1 import auth, events, health, jobs, profile, progress, providers, search, sources
+from app.api.v1 import (
+    auth,
+    events,
+    health,
+    jobs,
+    profile,
+    progress,
+    providers,
+    search,
+    sources,
+    tutor,
+)
 
 public_router = APIRouter()
 public_router.include_router(health.router)
@@ -24,3 +35,4 @@ router.include_router(profile.router)
 router.include_router(sources.router)
 router.include_router(search.router)
 router.include_router(progress.router)
+router.include_router(tutor.router)
