@@ -28,6 +28,10 @@ const TASK_LABELS: Record<TaskClass, string> = {
   'script-repair': 'Script repair',
   'figure-building': 'Figure building',
   tutoring: 'Tutoring',
+  topic_extraction: 'Curation: topic extraction',
+  topic_merge: 'Curation: topic merge',
+  scoring: 'Curation: scoring',
+  prerequisites: 'Curation: prerequisites',
 }
 
 const DEFAULT = ''

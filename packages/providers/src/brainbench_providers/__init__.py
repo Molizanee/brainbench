@@ -13,4 +13,9 @@ TASK_CLASSES: tuple[str, ...] = (
     "script-repair",
     "figure-building",
     "tutoring",
+    # Curation steps (section 6); each falls back to the "curation" route when not routed.
+    "topic_extraction",
+    "topic_merge",
+    "scoring",
+    "prerequisites",
 )

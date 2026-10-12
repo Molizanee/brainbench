@@ -1,5 +1,7 @@
 import type { QueryKey } from '@tanstack/react-query'
+import { curationKeys } from '../api/curation'
 import { jobKeys, type JobRead } from '../api/jobs'
+import { planKeys } from '../api/plans'
 import { sourceKeys } from '../api/sources'
 import type { EventInvalidations } from './useEventSource'
 
@@ -7,7 +9,9 @@ import type { EventInvalidations } from './useEventSource'
  * Job type → extra query keys to refresh when a job of that type changes (for example
  * `ingest: (job) => [sourceKeys.all]`). Sections add one entry per job type they own.
  */
-export const jobTypeInvalidations: Record<string, (job: JobRead) => QueryKey[]> = {}
+export const jobTypeInvalidations: Record<string, (job: JobRead) => QueryKey[]> = {
+  curation: () => [planKeys.all, curationKeys.all],
+}
 
 function isJob(payload: unknown): payload is JobRead {
   return !!payload && typeof payload === 'object' && typeof (payload as JobRead).type === 'string'

@@ -51,6 +51,12 @@ class Settings(BaseSettings):
     git_clone_timeout_s: float = 300.0
     url_fetch_timeout_s: float = 60.0
     embedding_batch_size: int = 64
+    # Curriculum curation (design D6).
+    curation_threshold: float = 0.4
+    curation_window_chars: int = 12_000
+    curation_merge_similarity: float = 0.85
+    curation_scoring_batch: int = 20
+    curation_default_estimate_minutes: int = 60
 
     @property
     def jobs_dir(self) -> Path:

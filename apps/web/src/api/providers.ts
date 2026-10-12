@@ -11,6 +11,10 @@ export type TaskClass =
   | 'script-repair'
   | 'figure-building'
   | 'tutoring'
+  | 'topic_extraction'
+  | 'topic_merge'
+  | 'scoring'
+  | 'prerequisites'
 
 export type VaultRead = { state: 'ok' | 'empty' | 'locked'; detail: string; key_path: string }
 
