@@ -1,0 +1,92 @@
+# ChatGPT Plus/Pro (Codex subscription), transcribed from omp (oh-my-pi).
+# Source commit: can1357/oh-my-pi b83200eb866821f02625332025b453f06ce4e12a (2026-10-12).
+#   browser login, refresh: packages/catalog/src/compat/rules/auth/openai-codex.kdl
+#   device login:           packages/catalog/src/compat/rules/auth/openai-codex-device.kdl and
+#                           packages/ai/src/registry/oauth/openai-codex.ts (loginOpenAICodexDevice)
+#   identity:               packages/ai/src/registry/oauth/openai-codex.ts (getTokenProfile)
+#   transport headers:      packages/catalog/src/wire/codex.ts and
+#                           packages/ai/src/providers/openai-codex-responses.ts (request headers)
+#   usage:                  packages/ai/src/usage/openai-codex.ts (wham/usage, x-codex-* headers)
+#   models:                 packages/catalog/src/models.json (openai-codex). The KDL names
+#                           default-model "gpt-5.5", which the bundled catalog no longer lists;
+#                           the newest general model in the catalog is the default here.
+id: openai-codex
+name: ChatGPT Plus/Pro (Codex)
+api: openai-responses
+base_url: https://chatgpt.com/backend-api
+source:
+  repo: https://github.com/can1357/oh-my-pi
+  commit: b83200eb866821f02625332025b453f06ce4e12a
+  files:
+    - packages/catalog/src/compat/rules/auth/openai-codex.kdl
+    - packages/catalog/src/compat/rules/auth/openai-codex-device.kdl
+    - packages/ai/src/registry/oauth/openai-codex.ts
+    - packages/catalog/src/wire/codex.ts
+    - packages/ai/src/providers/openai-codex-responses.ts
+    - packages/ai/src/usage/openai-codex.ts
+    - packages/catalog/src/models.json
+  notes: >-
+    The originator value is omp's own; OpenAI allowlists the browser redirect URI exactly, so
+    the callback port 1455 cannot fall back to another port.
+policy_notice: >-
+  OpenAI documents ChatGPT sign-in for Codex surfaces only. Using it from BrainBench is outside
+  that documented use; the account you connect here is yours and bears that risk.
+login:
+  - kind: oauth-code
+    client_id: app_EMoamEEZ73f0CkXaXp7hrann
+    authorize_url: https://auth.openai.com/oauth/authorize
+    scopes: [openid, profile, email, offline_access, api.connectors.read, api.connectors.invoke]
+    pkce: true
+    authorize_params:
+      id_token_add_organizations: "true"
+      codex_cli_simplified_flow: "true"
+      originator: omp
+    callback_port: 1455
+    callback_path: /auth/callback
+    redirect_uri: http://localhost:1455/auth/callback
+    paste_code: true
+    token_url: https://auth.openai.com/oauth/token
+    token_body: form
+    timeout_s: 15
+    instructions: >-
+      Complete login in your browser. If the browser cannot reach this machine, paste the URL of
+      the page the browser could not load (it starts with http://localhost:1455/auth/callback).
+  - kind: device-code
+    style: openai-deviceauth
+    client_id: app_EMoamEEZ73f0CkXaXp7hrann
+    device_url: https://auth.openai.com/api/accounts/deviceauth/usercode
+    device_token_url: https://auth.openai.com/api/accounts/deviceauth/token
+    verification_url: https://auth.openai.com/codex/device
+    redirect_uri: https://auth.openai.com/deviceauth/callback
+    token_url: https://auth.openai.com/oauth/token
+    token_body: form
+    interval_s: 5
+    poll_margin_s: 3
+    timeout_s: 15
+    instructions: Open the verification page, sign in, and enter the code.
+refresh:
+  token_url: https://auth.openai.com/oauth/token
+  token_body: form
+  skew_s: 300
+  timeout_s: 15
+identity:
+  org_scoped: true
+  source: openai-jwt
+usage:
+  endpoint: https://chatgpt.com/backend-api/wham/usage
+  format: codex-wham-usage
+  windows: [5h, 7d]
+transport:
+  path: /codex/responses
+  user_agent: brainbench/0.1.0
+  headers:
+    OpenAI-Beta: responses=experimental
+    Accept: text/event-stream
+  client_version: 0.159.0
+  originator: omp
+models:
+  - {id: gpt-6.1-sol, name: GPT-6.1 Sol, context_window: 500000, max_output: 128000, reasoning: true, default: true}
+  - {id: gpt-6-sol, name: GPT-6 Sol, context_window: 272000, max_output: 128000, reasoning: true}
+  - {id: gpt-6-luna, name: GPT-6 Luna, context_window: 272000, max_output: 128000, reasoning: true}
+  - {id: gpt-6-astra, name: GPT-6 Astra, context_window: 272000, max_output: 128000, reasoning: true}
+  - {id: gpt-5.6-sol, name: GPT-5.6 Sol, context_window: 1000000, max_output: 128000, reasoning: true}

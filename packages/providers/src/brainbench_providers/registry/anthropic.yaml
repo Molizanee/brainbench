@@ -1,0 +1,113 @@
+# Anthropic (Claude Pro/Max subscription), transcribed from omp (oh-my-pi).
+# Source commit: can1357/oh-my-pi b83200eb866821f02625332025b453f06ce4e12a (2026-10-12).
+#   login, refresh, identity: packages/catalog/src/compat/rules/auth/anthropic.kdl
+#   identity fallback:        packages/ai/src/registry/oauth/anthropic.ts (anthropic-identity hook)
+#   transport fingerprint:    packages/ai/src/providers/anthropic.ts (buildAnthropicHeaders,
+#                             claudeCodeAgentBetaDefaults, createClaudeBillingHeader, patchCch),
+#                             packages/ai/src/providers/claude-code-fingerprint.ts
+#   usage:                    packages/ai/src/usage/claude.ts, packages/ai/src/usage/claude-api.ts
+#   models:                   packages/catalog/src/models.json (anthropic), default-model in
+#                             packages/catalog/src/compat/rules/providers/anthropic.kdl
+id: anthropic
+name: Anthropic (Claude Pro/Max)
+api: anthropic-messages
+base_url: https://api.anthropic.com
+source:
+  repo: https://github.com/can1357/oh-my-pi
+  commit: b83200eb866821f02625332025b453f06ce4e12a
+  files:
+    - packages/catalog/src/compat/rules/auth/anthropic.kdl
+    - packages/ai/src/registry/oauth/anthropic.ts
+    - packages/ai/src/providers/anthropic.ts
+    - packages/ai/src/providers/claude-code-fingerprint.ts
+    - packages/ai/src/usage/claude.ts
+    - packages/catalog/src/models.json
+policy_notice: >-
+  Anthropic's terms do not permit third-party applications to offer Claude.ai login or to route
+  requests through Free, Pro or Max credentials, and Anthropic may enforce without notice. The
+  account you connect here is yours and bears that risk.
+login:
+  - kind: oauth-code
+    # Public OAuth client id, stored base64 like omp does so secret scanners stay quiet.
+    client_id: OWQxYzI1MGEtZTYxYi00NGQ5LTg4ZWQtNTk0NGQxOTYyZjVl
+    client_id_encoding: base64
+    authorize_url: https://claude.ai/oauth/authorize
+    scopes:
+      - org:create_api_key
+      - user:profile
+      - user:inference
+      - user:sessions:claude_code
+      - user:mcp_servers
+      - user:file_upload
+    pkce: true
+    authorize_params:
+      code: "true"
+    callback_port: 54545
+    callback_path: /callback
+    redirect_uri: http://localhost:54545/callback
+    paste_code: true
+    token_url: https://api.anthropic.com/v1/oauth/token
+    token_body: json
+    token_params:
+      state: "{state}"
+    instructions: >-
+      Complete login in your browser. If the browser cannot reach this machine, paste the final
+      redirect URL or the code shown by Anthropic.
+refresh:
+  token_url: https://api.anthropic.com/v1/oauth/token
+  token_body: json
+  skew_s: 300
+  headers:
+    anthropic-beta: oauth-2025-04-20
+    User-Agent: anthropic-sdk-typescript/0.112.1 userOAuthProvider
+identity:
+  org_scoped: true
+  source: anthropic-token
+  userinfo_url: https://api.anthropic.com/api/claude_cli/bootstrap?entrypoint=cli&model=claude-opus-4-8
+  userinfo_headers:
+    Accept: application/json, text/plain, */*
+    User-Agent: claude-code/2.1.280
+    anthropic-beta: oauth-2025-04-20
+usage:
+  endpoint: https://api.anthropic.com/api/oauth/usage
+  format: anthropic-oauth-usage
+  windows: [5h, 7d]
+  headers:
+    Accept: application/json, text/plain, */*
+    anthropic-beta: oauth-2025-04-20
+    User-Agent: claude-cli/2.1.280 (external, cli)
+transport:
+  path: /v1/messages?beta=true
+  user_agent: claude-cli/2.1.280 (external, cli)
+  headers:
+    Accept: application/json
+    anthropic-version: "2023-06-01"
+    anthropic-dangerous-direct-browser-access: "true"
+    x-app: cli
+    X-Stainless-Lang: js
+    X-Stainless-Package-Version: 0.112.1
+    X-Stainless-Retry-Count: "0"
+    X-Stainless-Runtime: node
+    X-Stainless-Runtime-Version: v26.3.0
+    X-Stainless-Timeout: "600"
+  betas:
+    - claude-code-20250219
+    - oauth-2025-04-20
+    - interleaved-thinking-2025-05-14
+    - thinking-token-count-2026-05-13
+    - context-management-2025-06-27
+    - prompt-caching-scope-2026-01-05
+    - mid-conversation-system-2026-04-07
+    - fallback-credit-2026-06-01
+  system_preamble: You are Claude Code, Anthropic's official CLI for Claude.
+  billing_header:
+    version: 2.1.280
+    salt: 59cf53e54c78
+    cch_seed: 0x4d659218e32a3268
+  tool_prefix: _
+models:
+  - {id: claude-opus-5-5, name: Claude Opus 5.5, context_window: 1000000, max_output: 128000, reasoning: true, default: true}
+  - {id: claude-sonnet-5-5, name: Claude Sonnet 5.5, context_window: 1000000, max_output: 128000, reasoning: true}
+  - {id: claude-haiku-5-5, name: Claude Haiku 5.5, context_window: 1000000, max_output: 128000, reasoning: true}
+  - {id: claude-fable-5-1, name: Claude Fable 5.1, context_window: 1000000, max_output: 128000, reasoning: true}
+  - {id: claude-opus-5, name: Claude Opus 5, context_window: 1000000, max_output: 128000, reasoning: true}
