@@ -80,3 +80,8 @@ check-schema-rev:
 smoke-manim:
     docker build -f infra/Dockerfile.manim -t brainbench/manim .
     infra/smoke/manim_check.sh brainbench/manim
+
+# Ingestion and pgvector search tests against DATABASE_URL, with the real embedding model.
+ingest-integration:
+    mkdir -p "${BRAINBENCH_DATA:-$PWD/data}"
+    BRAINBENCH_DATA="${BRAINBENCH_DATA:-$PWD/data}" uv run pytest -m integration apps/api/tests/integration/test_ingest_search.py

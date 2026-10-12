@@ -40,7 +40,7 @@
 - [x] 5.3 Local embeddings with `fastembed` bge-small, model cache in `BRAINBENCH_DATA/models`, batch insert into `chunks`
 - [x] 5.4 `POST /search` semantic query, k in [1, 50], cosine distance via pgvector
 - [x] 5.5 Web: sources page with MUI forms (URL, note, Git URL, PDF upload via `FormData` streamed through the Bun proxy), status table with live updates from an `EventSource` hook that invalidates queries, delete
-- [ ] 5.6 Tests: chunker boundaries; PDF chunks carry page numbers; failed extraction leaves zero chunks; search returns ordered results with location refs
+- [x] 5.6 Tests: chunker boundaries; PDF chunks carry page numbers; failed extraction leaves zero chunks; search returns ordered results with location refs
 
 ## 6. Curriculum curation
 
