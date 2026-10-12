@@ -2,8 +2,10 @@
 
 Unnamed SSE messages whose data is ``{"type": "<prefix>.<event>", "payload": ...}``. For each
 committed job event it sends ``jobs.updated`` (payload: the job, as ``JobRead``) followed by
-``jobs.event`` (payload: the event row, as ``JobEventRead``). A comment line keeps idle
-connections open; client disconnects end the generator and release the subscription.
+``jobs.event`` (payload: the event row, as ``JobEventRead``), or, when the row's ``kind`` is
+itself a namespaced type such as ``sources.updated``, that type with the row's ``data`` as
+payload. A comment line keeps idle connections open; client disconnects end the generator and
+release the subscription.
 """
 
 import asyncio
@@ -42,8 +44,9 @@ def get_event_sessions() -> async_sessionmaker[AsyncSession]:
     return SessionFactory
 
 
-def sse_message(type: str, payload: BaseModel) -> str:
-    data = json.dumps({"type": type, "payload": payload.model_dump(mode="json")})
+def sse_message(type: str, payload: BaseModel | dict[str, object]) -> str:
+    body = payload.model_dump(mode="json") if isinstance(payload, BaseModel) else payload
+    data = json.dumps({"type": type, "payload": body})
     return f"data: {data}\n\n"
 
 
@@ -68,7 +71,10 @@ async def event_stream(
                 continue
             job, event = loaded
             yield sse_message("jobs.updated", JobRead.model_validate(job))
-            yield sse_message("jobs.event", JobEventRead.model_validate(event))
+            if "." in event.kind:
+                yield sse_message(event.kind, event.data or {})
+            else:
+                yield sse_message("jobs.event", JobEventRead.model_validate(event))
 
 
 @router.get("/events", response_class=StreamingResponse)

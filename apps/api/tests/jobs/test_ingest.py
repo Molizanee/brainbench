@@ -73,8 +73,11 @@ async def chunks_of(session: AsyncSession, source_id: UUID) -> list[Chunk]:
 
 
 async def source_events(session: AsyncSession, job_id: UUID) -> list[tuple[str, dict[str, Any]]]:
+    """The handler's ``sources.updated`` rows, without the ``status`` row ``enqueue`` records."""
     rows = await session.scalars(
-        select(JobEvent).where(JobEvent.job_id == job_id).order_by(JobEvent.id)
+        select(JobEvent)
+        .where(JobEvent.job_id == job_id, JobEvent.kind == "sources.updated")
+        .order_by(JobEvent.id)
     )
     return [(row.kind, row.data) for row in rows]
 

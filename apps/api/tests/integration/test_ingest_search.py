@@ -191,7 +191,7 @@ def make_pdf(pages: list[str]) -> bytes:
 
 @pytest.fixture
 def api(pg_factory: async_sessionmaker[AsyncSession]) -> Iterator[TestClient]:
-    app = create_app(schema_guard=False)
+    app = create_app(schema_guard=False, background=False)
 
     async def override() -> AsyncIterator[AsyncSession]:
         async with pg_factory() as session:

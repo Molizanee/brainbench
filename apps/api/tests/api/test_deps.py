@@ -16,7 +16,7 @@ def test_v1_router_requires_session() -> None:
 
 
 def make_app(session_factory: async_sessionmaker[AsyncSession]) -> FastAPI:
-    app = create_app(schema_guard=False)
+    app = create_app(schema_guard=False, background=False)
     protected = APIRouter(dependencies=[Depends(require_session)])
 
     @protected.get("/api/secret")

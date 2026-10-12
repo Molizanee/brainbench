@@ -105,5 +105,8 @@ export const apiPost = <T>(path: string, body?: unknown, options?: RequestOption
 export const apiPatch = <T>(path: string, body?: unknown, options?: RequestOptions) =>
   request<T>('PATCH', path, body, options)
 
+export const apiPut = <T>(path: string, body?: unknown, options?: RequestOptions) =>
+  request<T>('PUT', path, body, options)
+
 export const apiDelete = <T = void>(path: string, options?: RequestOptions) =>
   request<T>('DELETE', path, undefined, options)

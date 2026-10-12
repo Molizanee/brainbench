@@ -178,7 +178,7 @@ def test_used_pct() -> None:
     assert used_pct(10, None) is None
 
 
-async def test_promotion_adds_current_skill_and_bumps_version_once(
+async def test_promotion_adds_current_skill_and_bumps_version_per_target(
     session: AsyncSession,
 ) -> None:
     profile = await add_profile(session)
@@ -193,13 +193,13 @@ async def test_promotion_adds_current_skill_and_bumps_version_once(
     await session.commit()
 
     assert {(p.name, p.level) for p in promoted} == {("Raft", "proficient"), ("Paxos", "expert")}
-    assert profile.version == 4
+    assert profile.version == 5
     assert raft_target.achieved_at is not None
     skills = (await session.scalars(select(CurrentSkill))).all()
     assert {(s.name, s.level) for s in skills} == {("Raft", "proficient"), ("Paxos", "expert")}
     # Already achieved targets are not promoted again.
     assert await promote_achieved_targets(session) == []
-    assert profile.version == 4
+    assert profile.version == 5
 
 
 async def test_promotion_raises_a_lower_current_skill(session: AsyncSession) -> None:

@@ -19,8 +19,6 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.schema import (
-    SKILL_LEVELS,
-    CurrentSkill,
     PlanItem,
     Profile,
     StudyPlan,
@@ -37,6 +35,7 @@ from app.models.progress import (
     TopicStatus,
     WeeklyPace,
 )
+from app.services.profile import promote_target
 
 log = logging.getLogger(__name__)
 
@@ -212,34 +211,13 @@ async def promote_achieved_targets(
         serving = {t.topic_id for t in topics if serves(t, target)}
         if not serving or not serving <= mastered:
             continue
-        await _add_current_skill(session, profile, target)
+        await promote_target(session, target.id)
         target.achieved_at = now()
         promoted.append(PromotedTarget(id=target.id, name=target.name, level=target.target_level))
         log.info("target skill %s achieved at level %s", target.id, target.target_level)
     if promoted:
-        profile.version += 1
         await session.flush()
     return promoted
-
-
-async def _add_current_skill(session: AsyncSession, profile: Profile, target: TargetSkill) -> None:
-    existing = await session.scalar(
-        select(CurrentSkill).where(
-            CurrentSkill.profile_id == profile.id,
-            CurrentSkill.name_normalized == target.name_normalized,
-        )
-    )
-    if existing is None:
-        session.add(
-            CurrentSkill(
-                profile_id=profile.id,
-                name=target.name,
-                name_normalized=target.name_normalized,
-                level=target.target_level,
-            )
-        )
-    elif SKILL_LEVELS.index(existing.level) < SKILL_LEVELS.index(target.target_level):
-        existing.level = target.target_level
 
 
 # --- Summary ------------------------------------------------------------------------------

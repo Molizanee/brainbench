@@ -87,7 +87,7 @@ def runtime(pg: AsyncEngine, tmp_path: Path, fake: FakeProviders) -> ProviderRun
 
 @pytest.fixture
 def api(pg: AsyncEngine, runtime: ProviderRuntime) -> Iterator[TestClient]:
-    app: FastAPI = create_app(schema_guard=False)
+    app: FastAPI = create_app(schema_guard=False, background=False)
     sessions = async_sessionmaker(pg, expire_on_commit=False)
 
     async def session() -> AsyncIterator[AsyncSession]:

@@ -43,7 +43,7 @@ async def session(
 
 @pytest.fixture
 def app(session_factory: async_sessionmaker[AsyncSession]) -> FastAPI:
-    app = create_app(schema_guard=False)
+    app = create_app(schema_guard=False, background=False)
 
     async def override_session() -> AsyncIterator[AsyncSession]:
         async with session_factory() as session:

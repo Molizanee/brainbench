@@ -22,6 +22,7 @@ from app.models.sources import (
     NoteSourceCreate,
     UrlSourceCreate,
 )
+from app.services import jobs as job_service
 
 log = logging.getLogger(__name__)
 
@@ -73,14 +74,8 @@ def pdf_title(filename: str | None) -> str:
 
 
 async def enqueue_ingest(session: AsyncSession, source: Source) -> Job:
-    """Queue the ``ingest`` job for ``source`` and link it on ``source.job_id``.
-
-    Thin local enqueue: section 2 ships the shared ``app.services.jobs.enqueue``; the integrator
-    switches this one call to it.
-    """
-    job = Job(id=uuid4(), type="ingest", status="queued", payload={"source_id": str(source.id)})
-    session.add(job)
-    await session.flush()
+    """Queue the ``ingest`` job for ``source`` and link it on ``source.job_id``."""
+    job = await job_service.enqueue(session, "ingest", {"source_id": str(source.id)})
     source.job_id = job.id
     return job
 
@@ -149,10 +144,7 @@ class SourceService:
         if source.job_id is not None:
             job = await self.session.get(Job, source.job_id)
             if job is not None and job.status in ACTIVE_JOB_STATUSES:
-                job.cancel_requested = True
-                if job.status == "queued":
-                    job.status = "cancelled"
-                    job.finished_at = datetime.now(UTC)
+                await job_service.cancel(self.session, job.id, now=datetime.now(UTC))
 
         source_chunks = select(Chunk.id).where(Chunk.source_id == source_id)
         cited = select(TopicChunk.topic_id).where(TopicChunk.chunk_id.in_(source_chunks))
