@@ -102,3 +102,8 @@ providers-integration:
 ingest-integration:
     mkdir -p "${BRAINBENCH_DATA:-$PWD/data}"
     BRAINBENCH_DATA="${BRAINBENCH_DATA:-$PWD/data}" uv run pytest -m integration apps/api/tests/integration/test_ingest_search.py
+
+# Section 6: curation job (worker path, deferral resume) and plan edits against DATABASE_URL.
+curation-integration:
+    test -n "${DATABASE_URL:-}" || { echo "set DATABASE_URL to a Postgres database" >&2; exit 1; }
+    uv run pytest -m integration apps/api/tests/integration/test_curation_postgres.py -q
