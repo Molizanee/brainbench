@@ -88,8 +88,8 @@ jobs:
       - uses: extractions/setup-just@v2
       - run: just smoke-manim
 
-  # Section 2: SKIP LOCKED claims, LISTEN/NOTIFY, and the runner on real Postgres.
-  jobs-integration:
+  # All sections' Postgres-backed tests (SKIP LOCKED, LISTEN/NOTIFY, vault rows, pgvector).
+  integration:
     runs-on: ubuntu-latest
     services:
       db:
@@ -108,4 +108,4 @@ jobs:
       - uses: astral-sh/setup-uv@v6
       - uses: extractions/setup-just@v2
       - run: uv sync --frozen
-      - run: just jobs-integration
+      - run: just integration

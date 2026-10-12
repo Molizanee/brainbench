@@ -1,0 +1,42 @@
+{
+  "provenance": "Exchange transcribed from the provider wire format as parsed by omp (can1357/oh-my-pi b83200e: packages/ai/src/providers/anthropic.ts, packages/ai/src/providers/openai-codex-responses.ts, packages/ai/src/usage/*), not captured from a live account. Tokens are placeholders; {access} is the token the test's account holds when the request is sent.",
+  "description": "401, refresh once, 401 again: the account needs re-authentication",
+  "exchanges": [
+    {
+      "request": {
+        "method": "POST",
+        "url": "https://chatgpt.com/backend-api/codex/responses",
+        "headers": {
+          "authorization": "Bearer {access}"
+        }
+      },
+      "response": {
+        "status": 401,
+        "headers": {
+          "content-type": "application/json"
+        },
+        "json": {
+          "detail": "Could not parse your authentication token. Please try signing in again."
+        }
+      }
+    },
+    {
+      "request": {
+        "method": "POST",
+        "url": "https://chatgpt.com/backend-api/codex/responses",
+        "headers": {
+          "authorization": "Bearer {access}"
+        }
+      },
+      "response": {
+        "status": 401,
+        "headers": {
+          "content-type": "application/json"
+        },
+        "json": {
+          "detail": "Could not parse your authentication token. Please try signing in again."
+        }
+      }
+    }
+  ]
+}

@@ -81,7 +81,18 @@ smoke-manim:
     docker build -f infra/Dockerfile.manim -t brainbench/manim .
     infra/smoke/manim_check.sh brainbench/manim
 
+# Every Postgres-backed integration test against DATABASE_URL (migrated first). CI runs this.
+integration:
+    test -n "${DATABASE_URL:-}" || { echo "set DATABASE_URL to a Postgres database" >&2; exit 1; }
+    cd apps/api && uv run alembic upgrade head
+    uv run pytest -m integration apps/api/tests/integration -q
+
 # Section 2: job queue, LISTEN/NOTIFY and runner tests against the Postgres in DATABASE_URL.
 jobs-integration:
     test -n "${DATABASE_URL:-}" || { echo "set DATABASE_URL to a Postgres database" >&2; exit 1; }
     uv run pytest -m integration apps/api/tests/integration/jobs
+
+# Section 3: no plaintext token in Postgres rows, API responses, or logs after connected accounts.
+providers-integration:
+    cd apps/api && uv run alembic upgrade head
+    uv run pytest -m integration apps/api/tests/integration -q

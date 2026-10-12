@@ -18,6 +18,9 @@ class Settings(BaseSettings):
     brainbench_data: Path = Path("/data")
     database_url: str = "postgresql+asyncpg://brainbench:brainbench@localhost:5432/brainbench"
     brainbench_oauth_callbacks: bool = False
+    # Inside the api container the listener binds every interface; compose publishes the
+    # callback ports on the host's 127.0.0.1 only (design D3).
+    brainbench_oauth_callback_host: str = "0.0.0.0"
     brainbench_port: int = 3000
     brainbench_bind: str = "127.0.0.1"
     brainbench_public_url: str | None = None

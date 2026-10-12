@@ -1,0 +1,122 @@
+{
+  "provenance": "Exchange transcribed from the provider wire format as parsed by omp (can1357/oh-my-pi b83200e: packages/ai/src/providers/anthropic.ts, packages/ai/src/providers/openai-codex-responses.ts, packages/ai/src/usage/*), not captured from a live account. Tokens are placeholders; {access} is the token the test's account holds when the request is sent.",
+  "description": "Structured output by forcing a single tool",
+  "exchanges": [
+    {
+      "request": {
+        "method": "POST",
+        "url": "https://api.anthropic.com/v1/messages?beta=true",
+        "headers": {
+          "authorization": "Bearer {access}",
+          "anthropic-version": "2023-06-01",
+          "x-app": "cli",
+          "user-agent": "claude-cli/2.1.280 (external, cli)",
+          "anthropic-dangerous-direct-browser-access": "true",
+          "anthropic-beta": "claude-code-20250219,oauth-2025-04-20,interleaved-thinking-2025-05-14,thinking-token-count-2026-05-13,context-management-2025-06-27,prompt-caching-scope-2026-01-05,mid-conversation-system-2026-04-07,fallback-credit-2026-06-01"
+        },
+        "json": {
+          "tool_choice": {
+            "type": "tool",
+            "name": "_TopicList"
+          }
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "text/event-stream; charset=utf-8",
+          "request-id": "req_011CU0fixture",
+          "anthropic-ratelimit-unified-status": "allowed",
+          "anthropic-ratelimit-unified-5h-utilization": "0.31",
+          "anthropic-ratelimit-unified-5h-reset": "1791900000",
+          "anthropic-ratelimit-unified-7d-utilization": "0.12",
+          "anthropic-ratelimit-unified-7d-reset": "1792400000"
+        },
+        "sse": [
+          {
+            "event": "message_start",
+            "data": {
+              "type": "message_start",
+              "message": {
+                "id": "msg_01fixture",
+                "type": "message",
+                "role": "assistant",
+                "model": "claude-opus-5-5",
+                "content": [],
+                "stop_reason": null,
+                "stop_sequence": null,
+                "usage": {
+                  "input_tokens": 80,
+                  "cache_creation_input_tokens": 0,
+                  "cache_read_input_tokens": 0,
+                  "output_tokens": 1
+                }
+              }
+            }
+          },
+          {
+            "event": "content_block_start",
+            "data": {
+              "type": "content_block_start",
+              "index": 0,
+              "content_block": {
+                "type": "tool_use",
+                "id": "toolu_02fixture",
+                "name": "_TopicList",
+                "input": {}
+              }
+            }
+          },
+          {
+            "event": "content_block_delta",
+            "data": {
+              "type": "content_block_delta",
+              "index": 0,
+              "delta": {
+                "type": "input_json_delta",
+                "partial_json": "{\"topics\": [{\"title\": \"Raft\", "
+              }
+            }
+          },
+          {
+            "event": "content_block_delta",
+            "data": {
+              "type": "content_block_delta",
+              "index": 0,
+              "delta": {
+                "type": "input_json_delta",
+                "partial_json": "\"minutes\": 45}]}"
+              }
+            }
+          },
+          {
+            "event": "content_block_stop",
+            "data": {
+              "type": "content_block_stop",
+              "index": 0
+            }
+          },
+          {
+            "event": "message_delta",
+            "data": {
+              "type": "message_delta",
+              "delta": {
+                "stop_reason": "tool_use",
+                "stop_sequence": null
+              },
+              "usage": {
+                "output_tokens": 22
+              }
+            }
+          },
+          {
+            "event": "message_stop",
+            "data": {
+              "type": "message_stop"
+            }
+          }
+        ]
+      }
+    }
+  ]
+}

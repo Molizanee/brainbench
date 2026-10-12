@@ -1,0 +1,164 @@
+{
+  "provenance": "Exchange transcribed from the provider wire format as parsed by omp (can1357/oh-my-pi b83200e: packages/ai/src/providers/anthropic.ts, packages/ai/src/providers/openai-codex-responses.ts, packages/ai/src/usage/*), not captured from a live account. Tokens are placeholders; {access} is the token the test's account holds when the request is sent.",
+  "description": "A native function call with streamed arguments",
+  "exchanges": [
+    {
+      "request": {
+        "method": "POST",
+        "url": "https://chatgpt.com/backend-api/codex/responses",
+        "headers": {
+          "authorization": "Bearer {access}",
+          "chatgpt-account-id": "org-1",
+          "openai-beta": "responses=experimental",
+          "originator": "omp",
+          "version": "0.159.0",
+          "accept": "text/event-stream"
+        },
+        "json": {
+          "tool_choice": "auto",
+          "tools": [
+            {
+              "type": "function",
+              "name": "search_chunks",
+              "description": "Search the engineer's material.",
+              "parameters": {
+                "type": "object",
+                "properties": {
+                  "query": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "query"
+                ]
+              },
+              "strict": false
+            }
+          ],
+          "input": [
+            {
+              "type": "message",
+              "role": "user",
+              "content": [
+                {
+                  "type": "input_text",
+                  "text": "What is a raft log?"
+                }
+              ]
+            },
+            {
+              "type": "function_call",
+              "call_id": "call_prev",
+              "name": "search_chunks",
+              "arguments": "{\"query\": \"raft\"}"
+            },
+            {
+              "type": "function_call_output",
+              "call_id": "call_prev",
+              "output": "No results."
+            }
+          ]
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "text/event-stream",
+          "x-codex-primary-used-percent": "12",
+          "x-codex-primary-window-minutes": "300",
+          "x-codex-primary-reset-at": "1791900000",
+          "x-codex-secondary-used-percent": "40",
+          "x-codex-secondary-window-minutes": "10080",
+          "x-codex-secondary-reset-at": "1792400000"
+        },
+        "sse": [
+          {
+            "event": "response.created",
+            "data": {
+              "type": "response.created",
+              "response": {
+                "id": "resp_fixture",
+                "status": "in_progress"
+              }
+            }
+          },
+          {
+            "event": "response.output_item.added",
+            "data": {
+              "type": "response.output_item.added",
+              "output_index": 0,
+              "item": {
+                "id": "fc_fixture",
+                "type": "function_call",
+                "call_id": "call_fixture",
+                "name": "search_chunks",
+                "arguments": "",
+                "status": "in_progress"
+              }
+            }
+          },
+          {
+            "event": "response.function_call_arguments.delta",
+            "data": {
+              "type": "response.function_call_arguments.delta",
+              "item_id": "fc_fixture",
+              "output_index": 0,
+              "delta": "{\"query\":"
+            }
+          },
+          {
+            "event": "response.function_call_arguments.delta",
+            "data": {
+              "type": "response.function_call_arguments.delta",
+              "item_id": "fc_fixture",
+              "output_index": 0,
+              "delta": " \"raft log\"}"
+            }
+          },
+          {
+            "event": "response.function_call_arguments.done",
+            "data": {
+              "type": "response.function_call_arguments.done",
+              "item_id": "fc_fixture",
+              "output_index": 0,
+              "arguments": "{\"query\": \"raft log\"}"
+            }
+          },
+          {
+            "event": "response.output_item.done",
+            "data": {
+              "type": "response.output_item.done",
+              "output_index": 0,
+              "item": {
+                "id": "fc_fixture",
+                "type": "function_call",
+                "call_id": "call_fixture",
+                "name": "search_chunks",
+                "arguments": "{\"query\": \"raft log\"}",
+                "status": "completed"
+              }
+            }
+          },
+          {
+            "event": "response.completed",
+            "data": {
+              "type": "response.completed",
+              "response": {
+                "id": "resp_fixture",
+                "status": "completed",
+                "usage": {
+                  "input_tokens": 120,
+                  "input_tokens_details": {
+                    "cached_tokens": 0
+                  },
+                  "output_tokens": 18,
+                  "total_tokens": 138
+                }
+              }
+            }
+          }
+        ]
+      }
+    }
+  ]
+}

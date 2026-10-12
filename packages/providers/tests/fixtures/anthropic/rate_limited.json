@@ -1,0 +1,34 @@
+{
+  "provenance": "Exchange transcribed from the provider wire format as parsed by omp (can1357/oh-my-pi b83200e: packages/ai/src/providers/anthropic.ts, packages/ai/src/providers/openai-codex-responses.ts, packages/ai/src/usage/*), not captured from a live account. Tokens are placeholders; {access} is the token the test's account holds when the request is sent.",
+  "description": "429 with the unified reset and representative claim",
+  "exchanges": [
+    {
+      "request": {
+        "method": "POST",
+        "url": "https://api.anthropic.com/v1/messages?beta=true",
+        "headers": {
+          "authorization": "Bearer {access}"
+        }
+      },
+      "response": {
+        "status": 429,
+        "headers": {
+          "content-type": "application/json",
+          "retry-after": "3600",
+          "anthropic-ratelimit-unified-status": "rejected",
+          "anthropic-ratelimit-unified-reset": "1791900000",
+          "anthropic-ratelimit-unified-representative-claim": "five_hour",
+          "anthropic-ratelimit-unified-5h-utilization": "1.0",
+          "anthropic-ratelimit-unified-5h-reset": "1791900000"
+        },
+        "json": {
+          "type": "error",
+          "error": {
+            "type": "rate_limit_error",
+            "message": "This request would exceed your account's rate limit. Please try again later."
+          }
+        }
+      }
+    }
+  ]
+}
