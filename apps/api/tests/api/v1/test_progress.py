@@ -3,9 +3,18 @@ from collections.abc import Iterator
 
 import pytest
 from fastapi.testclient import TestClient
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.db.schema import PlanItem, Profile, StudyPlan, TargetSkill, Topic, TopicRevision
+from app.db.schema import (
+    CurrentSkill,
+    PlanItem,
+    Profile,
+    StudyPlan,
+    TargetSkill,
+    Topic,
+    TopicRevision,
+)
 
 
 @pytest.fixture
@@ -150,6 +159,31 @@ async def test_progress_summary_per_target(signed_in: TestClient, session: Async
         ("Raft", "mastered"),
         ("Paxos", "in-progress"),
     ]
+
+
+async def test_last_mastered_topic_promotes_the_target(
+    signed_in: TestClient, session: AsyncSession
+) -> None:
+    target, (raft, paxos) = await seed(session)
+    first = signed_in.post(
+        f"/api/topics/{raft.id}/sessions", json={"minutes": 60, "rating": "confident"}
+    )
+    assert first.json()["promoted_targets"] == []
+
+    last = signed_in.post(
+        f"/api/topics/{paxos.id}/sessions", json={"minutes": 60, "rating": "could-teach"}
+    )
+    assert last.json()["promoted_targets"] == [
+        {"id": str(target.id), "name": "Distributed consensus", "level": "proficient"}
+    ]
+    session.expire_all()
+    skills = (await session.scalars(select(CurrentSkill))).all()
+    assert [(s.name, s.level) for s in skills] == [("Distributed consensus", "proficient")]
+
+    body = signed_in.get("/api/progress").json()
+    assert body["profile_version"] == 2
+    assert body["targets"][0]["achieved_at"] is not None
+    assert body["targets"][0]["minutes_remaining"] == 0
 
 
 def test_utc_offset_is_bounded(signed_in: TestClient) -> None:

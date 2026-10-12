@@ -1,4 +1,4 @@
-"""Topic status derivation and the progress summary (learning-progress spec).
+"""Topic status derivation, target promotion, and the progress summary (learning-progress spec).
 
 A topic is "mastered" when its latest session is rated confident or could-teach, "in-progress"
 when it has any other session, and "not-started" without sessions. Topics serve a target skill
@@ -19,6 +19,8 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.schema import (
+    SKILL_LEVELS,
+    CurrentSkill,
     PlanItem,
     Profile,
     StudyPlan,
@@ -28,6 +30,7 @@ from app.db.schema import (
 )
 from app.models.progress import (
     ProgressRead,
+    PromotedTarget,
     StatusCounts,
     TargetProgress,
     TargetTopic,
@@ -183,6 +186,60 @@ async def target_skills(session: AsyncSession, profile: Profile) -> list[TargetS
         .order_by(TargetSkill.created_at, TargetSkill.name_normalized)
     )
     return list(rows)
+
+
+async def promote_achieved_targets(
+    session: AsyncSession, *, now: Clock = utc_now
+) -> list[PromotedTarget]:
+    """Promote every unachieved target whose serving topics in the current plan are all mastered.
+
+    A promoted target gets ``achieved_at``, its skill is added to the current skills at the target
+    level (or raised to it when a lower entry exists), and the profile version is bumped once.
+    A target served by no topic is never promoted. Flushes; the caller commits.
+    """
+    profile = await load_profile(session)
+    plan = await current_plan(session)
+    if profile is None or plan is None:
+        return []
+    pending = [t for t in await target_skills(session, profile) if t.achieved_at is None]
+    if not pending:
+        return []
+    topics = await plan_topics(session, plan)
+    mastered = await mastered_topic_ids(session)
+
+    promoted: list[PromotedTarget] = []
+    for target in pending:
+        serving = {t.topic_id for t in topics if serves(t, target)}
+        if not serving or not serving <= mastered:
+            continue
+        await _add_current_skill(session, profile, target)
+        target.achieved_at = now()
+        promoted.append(PromotedTarget(id=target.id, name=target.name, level=target.target_level))
+        log.info("target skill %s achieved at level %s", target.id, target.target_level)
+    if promoted:
+        profile.version += 1
+        await session.flush()
+    return promoted
+
+
+async def _add_current_skill(session: AsyncSession, profile: Profile, target: TargetSkill) -> None:
+    existing = await session.scalar(
+        select(CurrentSkill).where(
+            CurrentSkill.profile_id == profile.id,
+            CurrentSkill.name_normalized == target.name_normalized,
+        )
+    )
+    if existing is None:
+        session.add(
+            CurrentSkill(
+                profile_id=profile.id,
+                name=target.name,
+                name_normalized=target.name_normalized,
+                level=target.target_level,
+            )
+        )
+    elif SKILL_LEVELS.index(existing.level) < SKILL_LEVELS.index(target.target_level):
+        existing.level = target.target_level
 
 
 # --- Summary ------------------------------------------------------------------------------

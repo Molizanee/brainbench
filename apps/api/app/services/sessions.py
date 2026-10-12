@@ -8,7 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.errors import NotFound
 from app.db.schema import StudySession, Topic
 from app.models.progress import SessionLogged, StudySessionCreate, StudySessionRead, TopicProgress
-from app.services.progress import Clock, topic_stats, utc_now
+from app.services.progress import Clock, promote_achieved_targets, topic_stats, utc_now
 
 log = logging.getLogger(__name__)
 
@@ -48,6 +48,11 @@ class SessionService:
         self.session.add(row)
         await self.session.flush()
         stats = (await topic_stats(self.session, [topic.id]))[topic.id]
+        promoted = (
+            await promote_achieved_targets(self.session, now=self.now)
+            if stats.status == "mastered"
+            else []
+        )
         logged = StudySessionRead.model_validate(row)
         await self.session.commit()
         log.info(
@@ -65,5 +70,5 @@ class SessionService:
                 minutes_studied=stats.minutes,
                 session_count=stats.sessions,
             ),
-            promoted_targets=[],
+            promoted_targets=promoted,
         )
