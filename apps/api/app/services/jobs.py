@@ -166,4 +166,5 @@ class JobService:
     async def cancel(self, job_id: UUID) -> Job:
         job = await cancel(self.session, job_id)
         await self.session.commit()
+        await self.session.refresh(job)  # updated_at is server-generated
         return job
