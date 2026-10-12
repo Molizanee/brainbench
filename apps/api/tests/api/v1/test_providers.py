@@ -190,3 +190,43 @@ def test_account_priority_can_be_changed(api: TestClient, fake: FakeProviders) -
     assert api.get("/api/providers").json()["providers"][0]["accounts"][0]["priority"] == 3
     missing = "00000000-0000-0000-0000-000000000000"
     assert api.patch(f"/api/providers/accounts/{missing}", json={"priority": 1}).status_code == 404
+
+
+def test_sign_out_deletes_the_account(api: TestClient, fake: FakeProviders) -> None:
+    account_id = connect(api, fake)
+    assert api.delete(f"/api/providers/accounts/{account_id}").status_code == 204
+    assert api.get("/api/providers").json()["providers"][0]["accounts"] == []
+    assert api.delete(f"/api/providers/accounts/{account_id}").status_code == 404
+
+
+def test_routing_settings_round_trip(api: TestClient, fake: FakeProviders) -> None:
+    connect(api, fake)
+    body = api.get("/api/settings/providers").json()
+    assert body["enabled_providers"] is None and body["routing"] == {}
+    assert body["effective"]["curation"] == {
+        "provider": "anthropic",
+        "model": "claude-opus-5-5",
+        "source": "default",
+        "connected": True,
+    }
+    assert [o["provider"] for o in body["options"]] == ["anthropic", "openai-codex"]
+    update = {
+        "enabled_providers": ["anthropic"],
+        "routing": {"tutoring": {"provider": "anthropic", "model": "claude-haiku-5-5"}},
+    }
+    saved = api.put("/api/settings/providers", json=update)
+    assert saved.status_code == 200
+    body = saved.json()
+    assert body["routing"] == {"tutoring": {"provider": "anthropic", "model": "claude-haiku-5-5"}}
+    assert body["effective"]["tutoring"]["source"] == "explicit"
+    assert [o["provider"] for o in body["options"]] == ["anthropic"]
+    assert api.get("/api/providers").json()["providers"][1]["enabled"] is False
+
+
+def test_routing_validation_errors(api: TestClient) -> None:
+    bad_model = {"routing": {"curation": {"provider": "anthropic", "model": "gpt-6"}}}
+    response = api.put("/api/settings/providers", json=bad_model)
+    assert response.status_code == 400
+    assert response.json()["detail"]["code"] == "invalid-routing"
+    bad_class = {"routing": {"painting": {"provider": "anthropic", "model": "claude-opus-5-5"}}}
+    assert api.put("/api/settings/providers", json=bad_class).status_code == 422

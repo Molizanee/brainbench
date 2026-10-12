@@ -123,3 +123,51 @@ class ProvidersRead(BaseModel):
 
 class AccountUpdate(BaseModel):
     priority: int = Field(ge=-1000, le=1000)
+
+
+TaskClass = Literal[
+    "curation", "storyboarding", "script-generation", "script-repair", "figure-building", "tutoring"
+]
+
+
+class RouteEntry(BaseModel):
+    provider: str
+    model: str
+
+
+class EffectiveRoute(BaseModel):
+    provider: str
+    model: str
+    source: Literal["explicit", "default"]
+    connected: bool
+
+
+class RoutingModelOption(BaseModel):
+    id: str
+    name: str
+    default: bool
+
+
+class RoutingProviderOption(BaseModel):
+    provider: str
+    name: str
+    connected: bool
+    models: list[RoutingModelOption]
+
+
+class ProviderSettingsRead(BaseModel):
+    task_classes: list[TaskClass]
+    enabled_providers: list[str] | None
+    routing: dict[TaskClass, RouteEntry]
+    effective: dict[TaskClass, EffectiveRoute | None]
+    options: list[RoutingProviderOption]
+
+
+class ProviderSettingsUpdate(BaseModel):
+    enabled_providers: list[str] | None = Field(
+        default=None, description="Enabled provider ids; null enables every registry provider."
+    )
+    routing: dict[TaskClass, RouteEntry] = Field(
+        default_factory=dict,
+        description="Explicit route per task class; a task class left out uses the default.",
+    )

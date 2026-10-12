@@ -14,20 +14,29 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime, time
 from functools import cache
 from pathlib import Path
+from typing import Literal
 from uuid import UUID
 
+import httpx
 from fastapi import FastAPI
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
 from app.core.errors import Conflict, DomainError, NotFound
 from app.db.session import SessionFactory as AppSessionFactory
+from app.jobs.errors import ProviderLimitReached
 from app.models.providers import (
     AccountRead,
     BlockRead,
+    EffectiveRoute,
     ModelRead,
     ProviderRead,
+    ProviderSettingsRead,
+    ProviderSettingsUpdate,
     ProvidersRead,
+    RouteEntry,
+    RoutingModelOption,
+    RoutingProviderOption,
     UsageTodayRead,
     VaultRead,
     WindowRead,
@@ -42,14 +51,32 @@ from app.services.vault_key import (
     key_state,
     write_new_key,
 )
-from brainbench_providers.errors import ProviderError, VaultLocked
+from brainbench_providers import TASK_CLASSES
+from brainbench_providers.errors import ProviderError, UnknownProvider, VaultLocked
 from brainbench_providers.oauth.manager import LoginManager, LoginView
 from brainbench_providers.oauth.tokens import HttpFactory, TokenSet, default_http
 from brainbench_providers.refresher import SWEEP_INTERVAL_S, Refresher
-from brainbench_providers.registry import ProviderSpec, Registry, load_registry
+from brainbench_providers.registry import ModelSpec, ProviderSpec, Registry, load_registry
 from brainbench_providers.select import AccountPool, blocked_until
 from brainbench_providers.usage import UsageMonitor
-from brainbench_providers.vault import Identity, VaultCipher, identity_key, seal_tokens
+from brainbench_providers.vault import (
+    Identity,
+    StoredCredential,
+    VaultCipher,
+    identity_key,
+    open_credential,
+    seal_tokens,
+)
+
+__lazy_modules__ = {
+    "brainbench_providers.strands_models",
+    "strands.models.model",
+    "strands.types.exceptions",
+}
+from strands.models.model import Model
+from strands.types.exceptions import ModelThrottledException
+
+from brainbench_providers.strands_models import build_model
 
 log = logging.getLogger(__name__)
 
@@ -81,6 +108,16 @@ class VaultLockedError(Conflict):
 
 class ResetNotConfirmed(DomainError):
     code = "confirmation-required"
+
+
+class NoProvider(DomainError):
+    """No connected, enabled account for a task class; the message links the providers page."""
+
+    code = "no-provider"
+
+
+class InvalidRouting(DomainError):
+    code = "invalid-routing"
 
 
 def domain_error(exc: ProviderError) -> DomainError:
@@ -326,6 +363,38 @@ class ProviderRuntime:
         if not await self.store.set_priority(credential_id, priority):
             raise NotFound("Unknown account", code="account-not-found")
 
+    async def delete_account(self, credential_id: UUID) -> None:
+        """Revoke the refresh token where the provider supports it, then delete the row.
+
+        Requests already holding the token finish or fail; no new request selects it.
+        """
+        stored = await self.store.get_credential(credential_id)
+        if stored is None:
+            raise NotFound("Unknown account", code="account-not-found")
+        spec = self.registry.get(stored.provider) if stored.provider in self.registry.ids else None
+        if spec is not None and spec.revoke_url and stored.refresh_enc is not None:
+            await self._revoke(spec, stored)
+        await self.store.delete_credential(credential_id)
+        log.info("credential %s removed", credential_id)
+
+    async def _revoke(self, spec: ProviderSpec, stored: StoredCredential) -> None:
+        assert spec.revoke_url is not None
+        try:
+            credential = open_credential(await self.cipher(), stored)
+            async with self.http() as client:
+                response = await client.post(
+                    spec.revoke_url,
+                    data={
+                        "token": credential.refresh_token or credential.access_token,
+                        "token_type_hint": "refresh_token",
+                        "client_id": spec.login[0].resolved_client_id,
+                    },
+                    timeout=15.0,
+                )
+            log.info("revocation for %s answered %d", stored.id, response.status_code)
+        except (ProviderError, httpx.HTTPError) as exc:
+            log.warning("revocation for %s failed: %s", stored.id, type(exc).__name__)
+
     # --- logins (task 3.3) --------------------------------------------------------------------
 
     async def start_login(self, provider_id: str, kind: str | None) -> LoginView:
@@ -404,3 +473,187 @@ async def start_refresher(
             await task
         await runtime.logins.close()
         log.info("provider refresher stopped")
+
+
+# --- Routing and inference entry points (task 3.7) ---------------------------------------------
+
+
+@dataclass(frozen=True)
+class Route:
+    task_class: str
+    spec: ProviderSpec
+    model: ModelSpec
+    source: Literal["explicit", "default"]
+
+
+def _routing(row_routing: dict[str, object] | None) -> dict[str, RouteEntry]:
+    entries = {}
+    for task_class, value in (row_routing or {}).items():
+        try:
+            entries[task_class] = RouteEntry.model_validate(value)
+        except ValueError:
+            log.warning("ignoring malformed routing entry for %s", task_class)
+    return entries
+
+
+async def _routing_state(
+    session: AsyncSession, runtime: ProviderRuntime
+) -> tuple[list[str] | None, dict[str, RouteEntry], set[str]]:
+    row = await load_instance_settings(session)
+    enabled = None if row.enabled_providers is None else list(row.enabled_providers)
+    credentials = await runtime.store.list_credentials()
+    connected = {c.provider for c in credentials if not c.disabled}
+    return enabled, _routing(row.provider_routing), connected
+
+
+def _resolve(
+    runtime: ProviderRuntime,
+    task_class: str,
+    enabled: list[str] | None,
+    routing: dict[str, RouteEntry],
+    connected: set[str],
+) -> Route | None:
+    """Explicit route when it names an enabled registry provider and model, else the first
+    enabled provider with a connected account, with its default model."""
+    entry = routing.get(task_class)
+    if entry is not None and entry.provider in runtime.registry.ids:
+        spec = runtime.registry.get(entry.provider)
+        if runtime.registry.is_enabled(spec.id, enabled):
+            try:
+                return Route(task_class, spec, spec.model(entry.model), "explicit")
+            except UnknownProvider:
+                log.warning("routing for %s names an unknown model %s", task_class, entry.model)
+    for spec in runtime.registry.enabled(enabled):
+        if spec.id in connected:
+            return Route(task_class, spec, spec.default_model, "default")
+    return None
+
+
+async def resolve_route(
+    session: AsyncSession, task_class: str, runtime: ProviderRuntime | None = None
+) -> Route:
+    """The provider and model a task class runs on; ``NoProvider`` when none can serve it."""
+    runtime = runtime or get_provider_runtime()
+    if task_class not in TASK_CLASSES:
+        raise InvalidRouting(f"Unknown task class {task_class!r}", code="invalid-task-class")
+    enabled, routing, connected = await _routing_state(session, runtime)
+    route = _resolve(runtime, task_class, enabled, routing, connected)
+    if route is None:
+        raise NoProvider(
+            f"No connected provider can run {task_class}. Connect your ChatGPT or Claude "
+            "subscription on the providers page (/providers)."
+        )
+    if route.spec.id not in connected:
+        raise NoProvider(
+            f"{task_class} is routed to {route.spec.name}, which has no connected account. "
+            "Connect one on the providers page (/providers) or change the routing."
+        )
+    status = await runtime.vault_status()
+    if status.state == "locked":
+        raise VaultLockedError(VaultLocked(str(status.key_path), status.detail).message)
+    return route
+
+
+async def ensure_provider_for(
+    session: AsyncSession, task_class: str, runtime: ProviderRuntime | None = None
+) -> Route:
+    """Check before enqueueing a job or sending a tutor message: raises ``NoProvider``
+    (``code="no-provider"``, 400) when the task class has no connected, enabled account, and
+    ``VaultLockedError`` (409) when the vault is locked. Blocked accounts pass: jobs defer."""
+    return await resolve_route(session, task_class, runtime)
+
+
+async def model_for(
+    session: AsyncSession, task_class: str, runtime: ProviderRuntime | None = None
+) -> Model:
+    """The Strands model for a task class: routing applied, an account selected per call."""
+    runtime = runtime or get_provider_runtime()
+    route = await resolve_route(session, task_class, runtime)
+    return build_model(
+        route.spec,
+        pool=runtime.pool,
+        http=runtime.http,
+        model=route.model,
+        task_class=task_class,
+    )
+
+
+def provider_limit_from(exc: ModelThrottledException) -> ProviderLimitReached:
+    """Job-layer conversion: a provider throttle becomes a deferral until its reset."""
+    reset_at = getattr(exc, "reset_at", None)
+    scope = getattr(exc, "scope", None)
+    message = "waiting for provider limit reset"
+    if scope:
+        message = f"{message} ({scope})"
+    return ProviderLimitReached(reset_at, message)
+
+
+async def provider_settings(
+    session: AsyncSession, runtime: ProviderRuntime
+) -> ProviderSettingsRead:
+    enabled, routing, connected = await _routing_state(session, runtime)
+    effective: dict[str, EffectiveRoute | None] = {}
+    for task_class in TASK_CLASSES:
+        route = _resolve(runtime, task_class, enabled, routing, connected)
+        effective[task_class] = (
+            None
+            if route is None
+            else EffectiveRoute(
+                provider=route.spec.id,
+                model=route.model.id,
+                source=route.source,
+                connected=route.spec.id in connected,
+            )
+        )
+    options = [
+        RoutingProviderOption(
+            provider=spec.id,
+            name=spec.name,
+            connected=spec.id in connected,
+            models=[
+                RoutingModelOption(id=m.id, name=m.name, default=m.default) for m in spec.models
+            ],
+        )
+        for spec in runtime.registry.enabled(enabled)
+    ]
+    return ProviderSettingsRead.model_validate(
+        {
+            "task_classes": list(TASK_CLASSES),
+            "enabled_providers": enabled,
+            "routing": {
+                k: v
+                for k, v in routing.items()
+                if k in TASK_CLASSES and runtime.registry.is_enabled(v.provider, enabled)
+                if v.provider in runtime.registry.ids
+            },
+            "effective": effective,
+            "options": options,
+        }
+    )
+
+
+async def update_provider_settings(
+    session: AsyncSession, runtime: ProviderRuntime, body: ProviderSettingsUpdate
+) -> ProviderSettingsRead:
+    """Replace the enabled providers and the routing (validated against the registry)."""
+    if body.enabled_providers is not None:
+        unknown = [p for p in body.enabled_providers if p not in runtime.registry.ids]
+        if unknown:
+            raise InvalidRouting(f"Unknown providers: {', '.join(unknown)}")
+    enabled = (
+        None if body.enabled_providers is None else list(dict.fromkeys(body.enabled_providers))
+    )
+    for task_class, entry in body.routing.items():
+        if entry.provider not in runtime.registry.ids:
+            raise InvalidRouting(f"{task_class}: unknown provider {entry.provider!r}")
+        spec = runtime.registry.get(entry.provider)
+        if not runtime.registry.is_enabled(spec.id, enabled):
+            raise InvalidRouting(f"{task_class}: {spec.name} is disabled")
+        if entry.model not in {m.id for m in spec.models}:
+            raise InvalidRouting(f"{task_class}: {spec.name} has no model {entry.model!r}")
+    row = await load_instance_settings(session)
+    row.enabled_providers = enabled
+    row.provider_routing = {k: v.model_dump() for k, v in body.routing.items()}
+    await session.commit()
+    log.info("provider settings updated (enabled=%s)", enabled)
+    return await provider_settings(session, runtime)

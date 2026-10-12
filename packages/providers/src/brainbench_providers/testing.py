@@ -96,6 +96,10 @@ class FakeProviders:
             OPENAI_DEVICE_TOKEN_URL: self._device_poll,
             CODEX_USAGE_URL: lambda r: self._usage(r, "openai-codex"),
         }
+        if url.endswith("/oauth/revoke"):
+            token = parse_qs(request.content.decode()).get("token", [""])[0]
+            self.revoked.add(token)
+            return httpx.Response(200, json={})
         route = routes.get(url)
         if route is None:
             return httpx.Response(404, json={"error": "not found"})
