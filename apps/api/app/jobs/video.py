@@ -1,7 +1,9 @@
 import logging
 
-from app.jobs.registry import JobContext, register
-from app.services import storyboard, video
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.jobs.registry import JobContext, register, register_claim_gate
+from app.services import budget, storyboard, video
 
 log = logging.getLogger(__name__)
 
@@ -14,3 +16,9 @@ async def run(ctx: JobContext) -> None:
     storyboard, script, render with up to three attempts (repairs in between), captions, asset.
     """
     await video.run_video(ctx, storyboard.VisualDeps())
+
+
+@register_claim_gate("video")
+async def gate(session: AsyncSession) -> bool:
+    """Queued video jobs wait while the month's render minutes are used up."""
+    return await budget.claim_allowed(session)
