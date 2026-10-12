@@ -6,12 +6,12 @@ from typing import Any
 from uuid import UUID
 
 import pytest
-from sqlalchemy import event, select
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
-from sqlalchemy.pool import NullPool
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
+from tests.support.sqlite import file_session_factory
 
 from app.core.config import settings
-from app.db.schema import Base, InstanceSettings, Job, JobEvent
+from app.db.schema import InstanceSettings, Job, JobEvent
 from app.jobs.errors import JobSkipped, PermanentJobError, ProviderLimitReached
 from app.jobs.registry import HANDLERS, Handler, JobContext
 from app.jobs.runner import ActiveJob, Runner
@@ -23,19 +23,9 @@ type Factory = async_sessionmaker[AsyncSession]
 
 @pytest.fixture
 async def session_factory(tmp_path: Path) -> AsyncIterator[Factory]:
-    """One connection per session, like Postgres: the runner's concurrent sessions must not
-    share a transaction (the conftest in-memory database has a single shared connection)."""
-    engine = create_async_engine(f"sqlite+aiosqlite:///{tmp_path / 'jobs.db'}", poolclass=NullPool)
-
-    @event.listens_for(engine.sync_engine, "connect")
-    def configure(dbapi_connection: Any, _: Any) -> None:
-        dbapi_connection.execute("PRAGMA journal_mode=WAL")
-        dbapi_connection.execute("PRAGMA busy_timeout=5000")
-
-    async with engine.begin() as connection:
-        await connection.run_sync(Base.metadata.create_all)
-    yield async_sessionmaker(engine, expire_on_commit=False)
-    await engine.dispose()
+    """One connection per session, like Postgres (see tests/support/sqlite.py)."""
+    async for factory in file_session_factory(tmp_path / "jobs.db"):
+        yield factory
 
 
 @pytest.fixture(autouse=True)
@@ -152,9 +142,13 @@ async def test_heartbeat_advances_while_handler_runs(
     beats: list[Any] = []
 
     async def handler(ctx: JobContext) -> None:
-        for _ in range(3):
+        # Sample until the heartbeat moved (bounded), so a slow runner cannot fail this.
+        beats.append((await load(session_factory, job_id)).heartbeat_at)
+        for _ in range(50):
             await asyncio.sleep(0.05)
             beats.append((await load(session_factory, job_id)).heartbeat_at)
+            if beats[-1] != beats[0]:
+                return
 
     runner = make_runner(session_factory, tmp_path, {"t": handler})
     await run_all(await runner.tick())

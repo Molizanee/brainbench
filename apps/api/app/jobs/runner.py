@@ -8,6 +8,7 @@ separate short transactions so they survive a failed attempt.
 """
 
 import asyncio
+import contextlib
 import logging
 import random
 import shutil
@@ -49,6 +50,9 @@ class ActiveJob:
     cancel_seen_at: float | None = None
     lease_lost: bool = False
     stopping: bool = False
+    # Set when the handler is over; the monitor exits at its next check instead of being
+    # cancelled, so a heartbeat commit is never interrupted while the final transaction starts.
+    finished: asyncio.Event = field(default_factory=asyncio.Event)
 
     def interrupted(self) -> bool:
         return self.cancel_requested or self.lease_lost or self.stopping
@@ -184,7 +188,7 @@ class Runner:
                 active.handler_task.cancel()
                 raise
             finally:
-                monitor.cancel()
+                active.finished.set()
                 await asyncio.gather(monitor, return_exceptions=True)
             error: BaseException | None = (
                 asyncio.CancelledError("handler cancelled")
@@ -278,7 +282,10 @@ class Runner:
         """Heartbeat, watch the cancel flag, and stop the handler on cancel or a lost lease."""
         last_beat = time.monotonic()
         while True:
-            await asyncio.sleep(settings.job_cancel_poll_s)
+            with contextlib.suppress(TimeoutError):
+                await asyncio.wait_for(active.finished.wait(), settings.job_cancel_poll_s)
+            if active.finished.is_set():
+                return
             beat = time.monotonic() - last_beat >= settings.job_heartbeat_s
             try:
                 async with self.session_factory() as session:

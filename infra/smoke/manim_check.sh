@@ -7,7 +7,13 @@ IMAGE="${1:-brainbench/manim}"
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 WORK="$(mktemp -d)"
 OUT="$(mktemp -d)"
-trap 'rm -rf "$WORK" "$OUT"' EXIT
+# Manim writes /out as its own user (uid 1000); on a host whose user differs (CI runners) that
+# output is not deletable from the host, so the cleanup runs inside the image.
+cleanup() {
+  docker run --rm --network none -v "$OUT:/out" "$IMAGE" sh -c 'rm -rf /out/* /out/.[!.]* 2>/dev/null; true' >/dev/null 2>&1 || true
+  rm -rf "$WORK" "$OUT"
+}
+trap cleanup EXIT
 cp "$ROOT/infra/smoke/manim_lesson.py" "$WORK/scene.py"
 chmod 755 "$WORK"
 chmod 777 "$OUT"

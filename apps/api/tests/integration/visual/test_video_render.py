@@ -8,14 +8,14 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from sqlalchemy import event, select
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
-from sqlalchemy.pool import NullPool
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
+from tests.support.sqlite import file_session_factory
 from tests.visual_seed import SCRIPT, job_context, seed_topic
 from tests.visual_seed import storyboard as board
 
 from app.core.config import settings
-from app.db.schema import Asset, Base, Job
+from app.db.schema import Asset, Job
 from app.jobs.registry import HANDLERS
 from app.jobs.runner import Runner
 from app.services import jobs, storyboard
@@ -97,17 +97,8 @@ async def test_fixture_script_renders_mp4_with_vtt_captions(
 
 @pytest.fixture
 async def factory(tmp_path: Path) -> AsyncIterator[async_sessionmaker[AsyncSession]]:
-    engine = create_async_engine(f"sqlite+aiosqlite:///{tmp_path / 'v.db'}", poolclass=NullPool)
-
-    @event.listens_for(engine.sync_engine, "connect")
-    def configure(dbapi_connection: Any, _: Any) -> None:
-        dbapi_connection.execute("PRAGMA journal_mode=WAL")
-        dbapi_connection.execute("PRAGMA busy_timeout=5000")
-
-    async with engine.begin() as connection:
-        await connection.run_sync(Base.metadata.create_all)
-    yield async_sessionmaker(engine, expire_on_commit=False)
-    await engine.dispose()
+    async for factory in file_session_factory(tmp_path / "v.db"):
+        yield factory
 
 
 async def test_render_over_the_time_limit_fails_with_reason_timeout(

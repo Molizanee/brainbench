@@ -93,8 +93,10 @@ Provider tokens are encrypted with `./data/vault.key` (mode `0600`); the databas
 ## Upgrade
 
 ```sh
-git pull && docker compose up --build
+git pull && docker compose build && docker compose up -d
 ```
+
+Build first, then `up`: on some Compose releases `up --build` rebuilds the images but starts the existing containers again, so the old code keeps running. A separate `build` makes `up` see the new image and recreate `init`, `api`, `worker` and `web`.
 
 The `init` service applies pending migrations before the API starts, and applies a changed skill pin. The API and the worker refuse to run against a schema revision they do not know.
 
@@ -111,17 +113,17 @@ docker compose run --rm init alembic downgrade "$(git show <previous-tag>:infra/
 
 # 3. Check out the previous release and start it.
 git checkout <previous-tag>
-docker compose up --build
+docker compose build && docker compose up -d
 ```
 
-`./data` is not changed by a rollback. The alternative is to restore the `./data` archive and the Postgres dump you took before upgrading (see above), then check out the previous release and run `docker compose up --build`.
+`./data` is not changed by a rollback. The alternative is to restore the `./data` archive and the Postgres dump you took before upgrading (see above), then check out the previous release and run `docker compose build && docker compose up -d`.
 
 ## Figure skill pin
 
 Interactive figures follow the Anatomy skill (`wheresryan22/anatomy`), vendored into `./data/skills/anatomy` at the commit named in `infra/anatomy.pin`. A pin change normally arrives with a release, so the upgrade command applies it. After editing the pin yourself, run:
 
 ```sh
-docker compose up --build
+docker compose build && docker compose up -d
 ```
 
 `init` fetches the pinned commit into `./data/skills/anatomy.staging`, checks that `HEAD` equals the pin, and swaps it into place with a rename. If the fetch or the check fails, the installed skill stays in use and the `init` log says `anatomy skill not updated`. The pin must be a full 40-character commit hash.

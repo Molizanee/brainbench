@@ -314,7 +314,7 @@ pass "recovery: restore the key at /data/vault.key, or reset; an unconfirmed res
 assert_data_intact "missing key"
 
 # ---------------------------------------------------------------------------------------------
-step "Change infra/anatomy.pin to another commit, docker compose up -d --build"
+step "Change infra/anatomy.pin to another commit, docker compose build && up -d"
 REPO_URL=$(sed -n 's/.*anatomy_repo_url: str = "\(.*\)"/\1/p' "$CLONE/apps/api/app/core/config.py")
 git init -q "$WORK/pin"
 git -C "$WORK/pin" fetch -q --depth 2 "$REPO_URL" "$PIN"
@@ -322,7 +322,10 @@ NEW_PIN=$(git -C "$WORK/pin" rev-parse FETCH_HEAD~1)
 info "new pin: $NEW_PIN (parent of $PIN in $REPO_URL)"
 printf '%s\n' "$NEW_PIN" >"$CLONE/infra/anatomy.pin"
 since=$(mark)
-dc up -d --build --quiet-pull
+# The documented upgrade: build first, then up. `up --build` alone leaves the old containers
+# running on some Compose releases (seen on the GitHub runner), so the new pin never reaches init.
+dc build
+dc up -d --quiet-pull
 wait_for "API not healthy through the web proxy" 180 healthy
 assert_init_ok
 log=$(init_log "$since")
@@ -338,11 +341,12 @@ pass "pin change: swapped by rename (directory inode $SKILL_INODE -> $new_inode)
 SKILL_INODE=$new_inode
 assert_data_intact "pin change"
 
-step "Deliberately bad pin, docker compose up -d --build"
+step "Deliberately bad pin, docker compose build && up -d"
 BAD_PIN=deadbeefdeadbeefdeadbeefdeadbeefdeadbeef
 printf '%s\n' "$BAD_PIN" >"$CLONE/infra/anatomy.pin"
 since=$(mark)
-dc up -d --build --quiet-pull
+dc build
+dc up -d --quiet-pull
 wait_for "API not healthy through the web proxy" 180 healthy
 assert_init_ok
 log=$(init_log "$since")

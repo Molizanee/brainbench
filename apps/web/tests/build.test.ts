@@ -16,7 +16,9 @@ test('the production build references its assets by absolute path', () => {
   const build = Bun.spawnSync(['sh', '-c', command], { cwd: join(import.meta.dir, '..') })
   expect(build.exitCode).toBe(0)
   const html = readFileSync(join(outdir, 'index.html'), 'utf8')
-  const urls = [...html.matchAll(/(?:src|href)="([^"]+)"/g)].map((m) => m[1])
+  const urls = [...html.matchAll(/(?:src|href)="([^"]+)"/g)]
+    .map((m) => m[1]!)
+    .filter((url) => !url.startsWith('data:')) // the favicon is inline
   expect(urls.length).toBeGreaterThan(0)
   for (const url of urls) expect(url).toStartWith('/')
 }, 60_000)

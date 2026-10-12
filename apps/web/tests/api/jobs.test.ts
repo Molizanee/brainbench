@@ -1,4 +1,5 @@
-import { afterAll, beforeAll, expect, test } from 'bun:test'
+import { afterAll, beforeAll, beforeEach, expect, test } from 'bun:test'
+import { jobsApi } from '../support/jobsMock'
 import { configureApiClient } from '../../src/api/client'
 import { cancelJob, getJob, isActive, jobKeys, listJobs } from '../../src/api/jobs'
 
@@ -20,6 +21,10 @@ beforeAll(() => {
 afterAll(() => {
   configureApiClient({ baseUrl: '' })
   upstream.stop(true)
+})
+
+beforeEach(() => {
+  jobsApi.useReal()
 })
 
 test('job functions call the jobs endpoints', async () => {
