@@ -39,7 +39,7 @@ export function TopicHeader({ topic, onLogSession, onGeneratePlan }: Props) {
         {plan &&
           !plan.excluded &&
           ` · plan v${plan.plan_version}, item ${plan.position + 1}` +
-            (plan.week_start !== null ? `, week ${plan.week_start + 1}` : '') +
+            (plan.week_start !== null ? `, week ${plan.week_start}` : '') +
             (plan.estimate_minutes ? `, about ${formatMinutes(plan.estimate_minutes)}` : '')}
       </Typography>
       <Stack direction="row" spacing={1} useFlexGap sx={{ flexWrap: 'wrap' }}>

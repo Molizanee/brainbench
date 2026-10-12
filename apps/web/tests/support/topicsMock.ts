@@ -116,7 +116,7 @@ export function makeTopic(overrides: Partial<TopicRead> = {}): TopicRead {
     plan_item: {
       plan_version: 2,
       position: 0,
-      week_start: 0,
+      week_start: 1,
       week_span: 1,
       estimate_minutes: 120,
       relevance: 0.9,

@@ -65,6 +65,25 @@ test('the topic page shows the video with captions and the sandboxed figure', as
   expect(screen.queryByAltText('Preview of the figure: Raft leader election')).toBeNull()
 })
 
+test('the plan line numbers weeks from 1, as the planner and the plan page do', async () => {
+  topicsApi.useFakes(
+    makeTopic({
+      plan_item: {
+        plan_version: 1,
+        position: 1,
+        week_start: 1,
+        week_span: 1,
+        estimate_minutes: 60,
+        relevance: 0.9,
+        rationale: null,
+        excluded: false,
+      },
+    }),
+  )
+  renderRoutes(routes, '/topics/raft')
+  expect(await screen.findByText(/plan v1, item 2, week 1, about 1 h/)).toBeDefined()
+})
+
 test('storyboard citations, script and build source are shown', async () => {
   const user = userEvent.setup()
   renderRoutes(routes, '/topics/raft')
