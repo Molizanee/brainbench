@@ -80,3 +80,9 @@ check-schema-rev:
 smoke-manim:
     docker build -f infra/Dockerfile.manim -t brainbench/manim .
     infra/smoke/manim_check.sh brainbench/manim
+
+# Provider integration tests against DATABASE_URL (migrated first): no plaintext token in
+# Postgres rows, API responses, or logs after connected accounts.
+providers-integration:
+    cd apps/api && uv run alembic upgrade head
+    uv run pytest -m integration apps/api/tests/integration -q
